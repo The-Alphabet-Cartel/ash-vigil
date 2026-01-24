@@ -29,7 +29,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm AS runtime
 
 # Default user/group IDs (can be overridden at runtime via PUID/PGID)
 ARG DEFAULT_UID=1000
