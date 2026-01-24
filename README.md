@@ -52,7 +52,7 @@ cp .env.template .env
 docker-compose up -d
 
 # Check health
-curl http://localhost:30890/health
+curl http://localhost:30882/health
 ```
 
 ## API Endpoints
@@ -91,7 +91,7 @@ Environment variables (set in `.env` or docker-compose):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VIGIL_API_HOST` | `0.0.0.0` | API bind address |
-| `VIGIL_API_PORT` | `30890` | API port |
+| `VIGIL_API_PORT` | `30882` | API port |
 | `VIGIL_MODEL_NAME` | `ourafla/mental-health-bert-finetuned` | HuggingFace model |
 | `VIGIL_MODEL_DEVICE` | `cuda` | Device (cuda/cpu) |
 | `VIGIL_LOG_LEVEL` | `INFO` | Logging level |
@@ -103,7 +103,7 @@ Environment variables (set in `.env` or docker-compose):
 | Spec | Value |
 |------|-------|
 | **Host** | Bacchus (10.20.30.14) |
-| **Port** | 30890 |
+| **Port** | 30882 |
 | **GPU** | NVIDIA RTX 5060 (8GB VRAM) |
 | **Container** | Docker Desktop (WSL2) |
 
