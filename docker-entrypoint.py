@@ -141,7 +141,7 @@ def main():
             "--host",
             os.environ.get("VIGIL_API_HOST", "0.0.0.0"),
             "--port",
-            os.environ.get("VIGIL_API_PORT", "30890"),
+            os.environ.get("VIGIL_API_PORT", "30882"),
         ],
     )
 
