@@ -6,7 +6,7 @@
 # =============================================================================
 #
 # Build: docker build -t ash-vigil .
-# Run:   docker run --gpus all -p 30890:30890 ash-vigil
+# Run:   docker run --gpus all -p 30882:30882 ash-vigil
 #
 # =============================================================================
 
@@ -41,7 +41,7 @@ LABEL org.opencontainers.image.description="Mental Health Risk Detection Service
 
 # Environment defaults
 ENV VIGIL_API_HOST=0.0.0.0 \
-    VIGIL_API_PORT=30890 \
+    VIGIL_API_PORT=30882 \
     VIGIL_MODEL_NAME=ourafla/mental-health-bert-finetuned \
     VIGIL_MODEL_DEVICE=cuda \
     VIGIL_LOG_LEVEL=INFO \
@@ -82,7 +82,7 @@ RUN mkdir -p /app/logs /app/models-cache && \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:30890/health || exit 1
+    CMD curl -f http://localhost:30882/health || exit 1
 
 EXPOSE 30882
 
