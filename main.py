@@ -48,7 +48,7 @@ def main():
     # Get API configuration
     api_config = config.get("api", {})
     host = api_config.get("host", "0.0.0.0")
-    port = api_config.get("port", 30890)
+    port = api_config.get("port", 30882)
 
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  🛡️  Ash-Vigil - Mental Health Risk Detection Service")
