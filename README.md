@@ -1,10 +1,12 @@
 # Ash-Vigil
 
-============================================================================
+---
+
 **Ash-Vigil**: Mental Health Risk Detection Service
 **Ash Ecosystem**: Crisis Detection for The Alphabet Cartel
 **The Alphabet Cartel** - https://discord.gg/alphabetcartel | https://alphabetcartel.org
-============================================================================
+
+---
 
 ## Overview
 
