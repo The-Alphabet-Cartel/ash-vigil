@@ -16,11 +16,11 @@ Ash-Vigil is a specialized mental health risk detection service that provides th
 
 ```
 Lofn (Ash-NLP)                    Bacchus (Ash-Vigil)
-┌─────────────────┐               ┌─────────────────┐
-│ BART + Sentiment│               │ Mental Health   │
-│ + Emotions      │──── HTTP ────>│ Risk Detector   │
-│ + Irony         │               │ (GPU-accelerated)│
-└─────────────────┘               └─────────────────┘
+┌──────────────────┐               ┌───────────────────┐
+│ BART + Sentiment │               │ Mental Health     │
+│ + Emotions       │──── HTTP ────>│ Risk Detector     │
+│ + Irony          │               │ (GPU-accelerated) │
+└──────────────────┘               └───────────────────┘
 ```
 
 ## Features
