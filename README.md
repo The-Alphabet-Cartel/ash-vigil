@@ -107,12 +107,6 @@ Environment variables (set in `.env` or docker-compose):
 | **GPU** | NVIDIA RTX 5060 (8GB VRAM) |
 | **Container** | Docker Desktop (WSL2) |
 
-## Documentation
-
-- [Planning Document](https://github.com/the-alphabet-cartel/ash/blob/main/docs/v5.0/ash-vigil/planning.md)
-- [Development Roadmap](https://github.com/the-alphabet-cartel/ash/blob/main/docs/v5.0/ash-vigil/roadmap.md)
-- [Clean Architecture Charter](https://github.com/the-alphabet-cartel/ash/blob/main/docs/standards/clean_architecture_charter.md)
-
 ## License
 
 Apache License 2.0 - See [LICENSE](LICENSE)
