@@ -12,7 +12,7 @@
 		"port": "${VIGIL_API_PORT}",
 		"defaults": {
 			"host": "0.0.0.0",
-			"port": 30890
+			"port": 30882
 		}
 	},
 
