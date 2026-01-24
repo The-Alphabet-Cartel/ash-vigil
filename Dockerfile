@@ -31,13 +31,17 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 # -----------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm AS runtime
 
+LABEL maintainer="PapaBearDoes <github.com/PapaBearDoes>"
+LABEL org.opencontainers.image.title="Ash-NLP"
+LABEL org.opencontainers.image.description="Mental Health Risk Detection Service for Ash Ecosystem"
+LABEL org.opencontainers.image.version="5.0.0"
+LABEL org.opencontainers.image.vendor="The Alphabet Cartel"
+LABEL org.opencontainers.image.url="https://github.com/the-alphabet-cartel/ash-nlp"
+LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/ash-nlp"
+
 # Default user/group IDs (can be overridden at runtime via PUID/PGID)
 ARG DEFAULT_UID=1000
 ARG DEFAULT_GID=1000
-
-LABEL maintainer="PapaBearDoes <github.com/PapaBearDoes>"
-LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/ash-vigil"
-LABEL org.opencontainers.image.description="Mental Health Risk Detection Service for Ash Ecosystem"
 
 # Environment defaults
 ENV VIGIL_API_HOST=0.0.0.0 \
