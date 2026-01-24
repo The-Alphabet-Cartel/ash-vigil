@@ -76,7 +76,7 @@ services:
       - "30882:30882"
 
     secrets:
-      - hugginface_token
+      - huggingface_token
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:30882/health"]
@@ -96,7 +96,7 @@ services:
 # =============================================================================
 secrets:
   huggingface_token:
-    file: ./secrets/hugginface_token
+    file: ./secrets/huggingface_token
 
 # =============================================================================
 # Networks
