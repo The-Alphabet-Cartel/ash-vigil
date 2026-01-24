@@ -1,0 +1,117 @@
+# =============================================================================
+# Ash-Vigil Docker Compose Configuration
+# Mental Health Risk Detection Service
+# =============================================================================
+# The Alphabet Cartel - https://discord.gg/alphabetcartel | https://alphabetcartel.org
+# =============================================================================
+
+### Common Variables ###
+x-common: &common
+  networks:
+    - ash-vigil
+  restart: unless-stopped
+
+### Common Environmental Variables ###
+x-env: &env
+  PGID: ${PGID:-1000}
+  PUID: ${PUID:-1000}
+  TZ: ${TZ:-America/Los_Angeles}
+  # Force ANSI colors in Docker logs (Charter v5.2 colorized logging)
+  FORCE_COLOR: "1"
+
+### Healthchecks ###
+x-health: &health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 120s
+  start_interval: 10s
+
+services:
+  # ===========================================================================
+  # Ash-Vigil Risk Detection NLP
+  # ===========================================================================
+  ash-vigil:
+    image: ghcr.io/the-alphabet-cartel/ash-vault:latest
+    container_name: ash-vault-backup
+    build:
+      context: .
+      dockerfile: Dockerfile
+    <<: *common
+
+    # GPU support for NVIDIA
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    environment:
+      <<: *env
+      # API Configuration
+      VIGIL_API_HOST: ${VIGIL_HOST:-0.0.0.0}
+      VIGIL_API_PORT: ${VIGIL_PORT:-30882}
+
+      # Model Configuration
+      VIGIL_MODEL_NAME: ${VIGIL_MODEL_NAME:-ourafla/mental-health-bert-finetuned}
+      VIGIL_MODEL_DEVICE: ${VIGIL_MODEL_DEVICE:-cuda}
+
+      # Logging
+      VIGIL_LOG_LEVEL: ${VIGIL_LOG_LEVEL:-INFO}
+
+      # GPU
+      NVIDIA_VISIBLE_DEVICES: all
+    env_file:
+      - .env
+
+    volumes:
+      # Logs
+      - ./logs:/app/logs
+      # Model cache (persist downloaded models)
+      - ./models-cache:/app/models-cache
+
+    ports:
+      - "30882:30882"
+
+    secrets:
+      - hugginface_token
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:30890/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# Secrets
+# =============================================================================
+secrets:
+  huggingface_token:
+    file: ./secrets/hugginface_token
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  ash-vigil:
+    name: ash-vigil
+    driver: bridge
+    external: true
+
+# =============================================================================
+# Notes
+# =============================================================================
+# Configuration:
+#   - All settings loaded from .env file
+#   - Copy .env.template to .env and customize
+#   - Secrets stored in ./secrets/ directory
+# =============================================================================

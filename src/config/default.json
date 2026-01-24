@@ -1,0 +1,69 @@
+{
+	"_metadata": {
+		"title": "Ash-Vigil Default Configuration",
+		"file_version": "v5.0-1-1.0-1",
+		"last_modified": "2026-01-24",
+		"clean_architecture": "v5.2.2",
+		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
+	},
+
+	"api": {
+		"host": "${VIGIL_API_HOST}",
+		"port": "${VIGIL_API_PORT}",
+		"defaults": {
+			"host": "0.0.0.0",
+			"port": 30890
+		}
+	},
+
+	"model": {
+		"name": "${VIGIL_MODEL_NAME}",
+		"device": "${VIGIL_MODEL_DEVICE}",
+		"max_length": "${VIGIL_MODEL_MAX_LENGTH}",
+		"defaults": {
+			"name": "ourafla/mental-health-bert-finetuned",
+			"device": "cuda",
+			"max_length": 512
+		}
+	},
+
+	"inference": {
+		"batch_size": "${VIGIL_BATCH_SIZE}",
+		"timeout_seconds": "${VIGIL_TIMEOUT}",
+		"defaults": {
+			"batch_size": 1,
+			"timeout_seconds": 30
+		}
+	},
+
+	"logging": {
+		"level": "${VIGIL_LOG_LEVEL}",
+		"format": "${VIGIL_LOG_FORMAT}",
+		"colorize": "${VIGIL_LOG_COLORIZE}",
+		"defaults": {
+			"level": "INFO",
+			"format": "standard",
+			"colorize": true
+		},
+		"validation": {
+			"level": {
+				"type": "enum",
+				"values": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+			},
+			"format": {
+				"type": "enum",
+				"values": ["standard", "json"]
+			},
+			"colorize": {
+				"type": "boolean"
+			}
+		}
+	},
+
+	"risk_labels": {
+		"high_risk": ["suicide_risk", "self_harm_risk", "crisis"],
+		"moderate_risk": ["depression", "anxiety", "distress"],
+		"low_risk": ["concern", "mild_distress"],
+		"safe": ["safe", "neutral", "positive"]
+	}
+}

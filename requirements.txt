@@ -1,0 +1,27 @@
+# =============================================================================
+# Ash-Vigil Requirements
+# Mental Health Risk Detection Service
+# =============================================================================
+# The Alphabet Cartel - https://discord.gg/alphabetcartel | https://alphabetcartel.org
+# =============================================================================
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# ML/AI
+torch>=2.1.0
+transformers>=4.36.0
+accelerate>=0.25.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HTTP Client (for health checks)
+httpx>=0.26.0
+requests>=2.31.0
+
+# Metrics
+prometheus-client>=0.19.0
