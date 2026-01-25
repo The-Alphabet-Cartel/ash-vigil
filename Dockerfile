@@ -71,7 +71,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIGIL_MODEL_DEVICE=cuda \
     # HuggingFace cache
     HF_HOME=/app/models-cache \
-    TRANSFORMERS_CACHE=/app/models-cache \
     # CUDA
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
