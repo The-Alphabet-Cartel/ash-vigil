@@ -15,80 +15,110 @@
 # -----------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm AS builder
 
-WORKDIR /build
+# Build arguments
+ARG PIP_NO_CACHE_DIR=1
+ARG PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
+# Create app directory
+WORKDIR /app
+
+# Copy requirements first (for better caching)
 COPY requirements.txt .
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
 
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime
 # -----------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm AS runtime
 
-LABEL maintainer="PapaBearDoes <github.com/PapaBearDoes>"
-LABEL org.opencontainers.image.title="Ash-NLP"
-LABEL org.opencontainers.image.description="Mental Health Risk Detection Service for Ash Ecosystem"
-LABEL org.opencontainers.image.version="5.0.0"
-LABEL org.opencontainers.image.vendor="The Alphabet Cartel"
-LABEL org.opencontainers.image.url="https://github.com/the-alphabet-cartel/ash-nlp"
-LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/ash-nlp"
-
 # Default user/group IDs (can be overridden at runtime via PUID/PGID)
 ARG DEFAULT_UID=1000
 ARG DEFAULT_GID=1000
 
-# Environment defaults
-ENV VIGIL_API_HOST=0.0.0.0 \
+# Labels
+LABEL maintainer="PapaBearDoes <github.com/PapaBearDoes>"
+LABEL org.opencontainers.image.title="Ash-Vigil"
+LABEL org.opencontainers.image.description="Mental Health Risk Detection Service for Ash Ecosystem"
+LABEL org.opencontainers.image.version="5.0.0"
+LABEL org.opencontainers.image.vendor="The Alphabet Cartel"
+LABEL org.opencontainers.image.url="https://github.com/the-alphabet-cartel/ash-vigil"
+LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/ash-vigil"
+
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    # Application
+    VIGIL_API_HOST=0.0.0.0 \
     VIGIL_API_PORT=30882 \
+    VIGIL_LOG_LEVEL=INFO \
+    # Model settings
     VIGIL_MODEL_NAME=ourafla/mental-health-bert-finetuned \
     VIGIL_MODEL_DEVICE=cuda \
-    VIGIL_LOG_LEVEL=INFO \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
+    # HuggingFace cache
     HF_HOME=/app/models-cache \
     TRANSFORMERS_CACHE=/app/models-cache \
+    # CUDA
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     # Default PUID/PGID (LinuxServer.io style)
     PUID=${DEFAULT_UID} \
     PGID=${DEFAULT_GID}
 
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    tini \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create app directories (owned by root initially, entrypoint fixes ownership)
+RUN mkdir -p /app/config /app/models-cache /app/logs
+
+# Set working directory
 WORKDIR /app
 
-# Install runtime dependencies
-# - tini: PID 1 signal handling
-# - curl: health checks
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tini \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user (will be modified at runtime by entrypoint)
-RUN groupadd -g ${PGID} ash-vigil && \
-    useradd -u ${PUID} -g ${PGID} -d /app -s /bin/bash ash-vigil
-
-# Copy wheels from builder and install
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/dist-packages
 
 # Copy application code
 COPY src/ /app/src/
 COPY main.py /app/
 COPY docker-entrypoint.py /app/
 
-# Create directories for runtime data
-RUN mkdir -p /app/logs /app/models-cache && \
-    chown -R ${PUID}:${PGID} /app
+# Make entrypoint executable
+RUN chmod +x /app/docker-entrypoint.py 2>/dev/null || true
+
+# NOTE: We do NOT switch to non-root user here.
+# The entrypoint.py handles:
+# 1. Creating user with PUID/PGID
+# 2. Fixing ownership of /app directories
+# 3. Dropping privileges before starting the server
+
+# Expose port
+EXPOSE 30882
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:30882/health || exit 1
 
-EXPOSE 30882
+# Use tini as init system
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# NOTE: Do NOT use USER directive - entrypoint handles PUID/PGID at runtime
-ENTRYPOINT ["/usr/bin/tini", "--", "python", "/app/docker-entrypoint.py"]
+# Default command - uses entrypoint for user setup and model initialization
+CMD ["python", "/app/docker-entrypoint.py"]
