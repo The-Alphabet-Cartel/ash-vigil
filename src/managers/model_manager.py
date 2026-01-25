@@ -13,13 +13,13 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Manages the loading, inference, and lifecycle of the mental health risk detection model.
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-1
+FILE VERSION: v5.0-1-1.0-2
 LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - {Phase Description}
+PHASE: Phase 1 - Skeleton Setup
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
-Supports GPU acceleration via CUDA.
+Supports GPU acceleration via CUDA and gated model access via HuggingFace token.
 """
 
 import asyncio
@@ -29,6 +29,7 @@ import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
 from src.managers.logging_config_manager import LoggingConfigManager
+from src.managers.secrets_manager import create_secrets_manager
 
 
 class ModelManager:
@@ -52,6 +53,10 @@ class ModelManager:
         # Get logger
         logging_manager = LoggingConfigManager(config)
         self._logger = logging_manager.get_logger(__name__)
+
+        # Initialize secrets manager and configure HuggingFace
+        self._secrets_manager = create_secrets_manager()
+        self._hf_token_configured = self._secrets_manager.configure_huggingface()
 
         # Model state
         self._model = None
@@ -82,13 +87,24 @@ class ModelManager:
         """Get the device the model is running on."""
         return str(self._device) if self._device else "unknown"
 
+    @property
+    def hf_token_available(self) -> bool:
+        """Check if HuggingFace token is configured for gated models."""
+        return self._hf_token_configured
+
     async def load_model(self) -> None:
         """
         Load the model and tokenizer.
 
         Uses GPU if available and requested, falls back to CPU.
+        HuggingFace token is automatically used if available for gated models.
         """
         self._logger.info(f"Loading model: {self.model_name}")
+
+        if self._hf_token_configured:
+            self._logger.info("✅ HuggingFace token configured (gated model access enabled)")
+        else:
+            self._logger.info("ℹ️ No HuggingFace token (public models only)")
 
         # Determine device
         if self._requested_device == "cuda" and torch.cuda.is_available():
@@ -113,12 +129,19 @@ class ModelManager:
 
     def _load_model_sync(self) -> None:
         """Synchronous model loading (run in executor)."""
+        # Get token for gated models (transformers will also check HF_TOKEN env var)
+        token = self._secrets_manager.get_huggingface_token()
+
         # Load tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name,
+            token=token,
+        )
 
         # Load model
         self._model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name
+            self.model_name,
+            token=token,
         ).to(self._device)
 
         # Create pipeline for easier inference
@@ -257,3 +280,33 @@ class ModelManager:
 
         self._is_loaded = False
         self._logger.info("Model resources cleaned up")
+
+
+# =============================================================================
+# Factory Function
+# =============================================================================
+
+
+def create_model_manager(config: Dict[str, Any]) -> ModelManager:
+    """
+    Factory function to create a ModelManager instance.
+
+    Following Clean Architecture Rule #1: Factory Functions.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Configured ModelManager instance
+    """
+    return ModelManager(config)
+
+
+# =============================================================================
+# Export public interface
+# =============================================================================
+
+__all__ = [
+    "ModelManager",
+    "create_model_manager",
+]
