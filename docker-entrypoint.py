@@ -12,139 +12,441 @@ MISSION - NEVER TO BE VIOLATED:
     Protect  → Safeguard our LGBTQIA+ community through vigilant pattern detection
 
 ============================================================================
-Pure Python entrypoint for Docker container initialization.
+Docker Entrypoint for Ash-Vigil Service
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-1
+FILE VERSION: v5.0-1-1.0-2
 LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - {Phase Description}
-CLEAN ARCHITECTURE: Compliant
+PHASE: Phase 1 - Skeleton Setup
+CLEAN ARCHITECTURE: Rule #13 - Standardized Docker Entrypoint
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
-Handles PUID/PGID user switching (LinuxServer.io style) without bash scripting.
+DESCRIPTION:
+    Python-based Docker entrypoint that:
+    1. Sets up user/group based on PUID/PGID environment variables
+    2. Fixes ownership of application directories
+    3. Drops privileges to the configured user
+    4. Starts the FastAPI server via uvicorn
 
-This script:
-1. Reads PUID/PGID from environment (defaults to 1000)
-2. Modifies the 'vigil' user/group to match
-3. Fixes ownership of writable directories
-4. Drops privileges and executes the main application
+    This approach follows the project's "No Bash Scripting" philosophy
+    while enabling LinuxServer.io-style user configuration.
 
-Usage with tini in Dockerfile:
-    ENTRYPOINT ["/usr/bin/tini", "--", "python", "/app/docker-entrypoint.py"]
+USAGE:
+    # Called automatically by Docker
+    # Or manually:
+    python docker-entrypoint.py
+
+    # With custom PUID/PGID:
+    PUID=1000 PGID=1000 python docker-entrypoint.py
+============================================================================
 """
 
+import grp
 import os
 import pwd
-import grp
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+# =============================================================================
+# COMPONENT CONFIGURATION
+# =============================================================================
+COMPONENT_NAME = "ash-vigil"
+COMPONENT_EMOJI = "👁️"
+
+# Default user/group (should match Dockerfile ARG defaults)
+DEFAULT_UID = 1000
+DEFAULT_GID = 1000
+APP_USER = "ash-vigil"
+APP_GROUP = "ash-vigil"
+
+# Application directory
+APP_HOME = Path("/app")
+
+# Directories that need write access
+WRITABLE_DIRECTORIES = [
+    "/app/logs",
+    "/app/models-cache",
+]
+
+# Default command if none provided
+DEFAULT_COMMAND = [
+    "python",
+    "-m",
+    "uvicorn",
+    "src.api.app:app",
+    "--host",
+    os.environ.get("VIGIL_API_HOST", "0.0.0.0"),
+    "--port",
+    os.environ.get("VIGIL_API_PORT", "30882"),
+]
+
+# =============================================================================
+__version__ = "v5.0-1-1.0-2"
 
 
-def get_env_int(name: str, default: int) -> int:
-    """Get integer environment variable with default."""
-    try:
-        return int(os.environ.get(name, default))
-    except ValueError:
-        return default
+# =============================================================================
+# Colorized Logging
+# =============================================================================
+class Colors:
+    """ANSI escape codes for Charter v5.2 compliant colorization."""
+
+    RESET = "\033[0m"
+    DIM = "\033[2m"
+    BOLD = "\033[1m"
+    CRITICAL = "\033[1;91m"  # Bright Red Bold
+    ERROR = "\033[91m"  # Bright Red
+    WARNING = "\033[93m"  # Bright Yellow
+    INFO = "\033[96m"  # Bright Cyan
+    DEBUG = "\033[90m"  # Gray
+    SUCCESS = "\033[92m"  # Bright Green
+    TIMESTAMP = "\033[90m"  # Gray
+    HEADER = "\033[95m"  # Magenta
 
 
-def user_exists(username: str) -> bool:
-    """Check if a user exists."""
-    try:
-        pwd.getpwnam(username)
-        return True
-    except KeyError:
-        return False
+def _should_use_colors() -> bool:
+    """Check if colors should be used based on FORCE_COLOR or TTY."""
+    force_color = os.environ.get("FORCE_COLOR", "").lower() in ("1", "true", "yes")
+    return force_color or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty())
 
 
-def group_exists(groupname: str) -> bool:
-    """Check if a group exists."""
-    try:
-        grp.getgrnam(groupname)
-        return True
-    except KeyError:
-        return False
+_USE_COLORS = _should_use_colors()
 
 
-def run_command(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    """Run a command and optionally check for errors."""
-    return subprocess.run(cmd, check=check, capture_output=True, text=True)
+def _format_log(level: str, message: str, color: str) -> str:
+    """Format a log message with Charter v5.2 colorization."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if _USE_COLORS:
+        return (
+            f"{Colors.TIMESTAMP}[{timestamp}]{Colors.RESET} "
+            f"{color}{level.ljust(8)}{Colors.RESET} "
+            f"{Colors.DIM}|{Colors.RESET} "
+            f"{color}{message}{Colors.RESET}"
+        )
+    return f"[{timestamp}] {level.ljust(8)} | {message}"
 
 
-def main():
-    """Main entrypoint logic."""
-    # Get target PUID/PGID from environment
-    target_uid = get_env_int("PUID", 1000)
-    target_gid = get_env_int("PGID", 1000)
+def log_info(message: str) -> None:
+    """Log an info message."""
+    print(_format_log("INFO", message, Colors.INFO), flush=True)
 
-    username = "vigil"
-    groupname = "vigil"
 
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"  Ash-Vigil Container Initialization")
-    print(f"  Target UID: {target_uid} | Target GID: {target_gid}")
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+def log_success(message: str) -> None:
+    """Log a success message."""
+    print(_format_log("SUCCESS", message, Colors.SUCCESS), flush=True)
 
-    # Check if running as root (required for user modification)
-    if os.geteuid() != 0:
-        print("⚠️  Not running as root - skipping user modification")
-        print("   Container will run as current user")
+
+def log_warning(message: str) -> None:
+    """Log a warning message."""
+    print(_format_log("WARNING", message, Colors.WARNING), flush=True)
+
+
+def log_error(message: str) -> None:
+    """Log an error message."""
+    print(_format_log("ERROR", message, Colors.ERROR), file=sys.stderr, flush=True)
+
+
+def print_startup_banner() -> None:
+    """Print the ASCII art startup banner."""
+    banner = """
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                       ║
+║       █████╗ ███████╗██╗  ██╗        ██╗   ██╗██╗ ██████╗ ██╗██╗                      ║
+║      ██╔══██╗██╔════╝██║  ██║        ██║   ██║██║██╔════╝ ██║██║                      ║
+║      ███████║███████╗███████║ █████╗ ██║   ██║██║██║  ███╗██║██║                      ║
+║      ██╔══██║╚════██║██╔══██║ ╚════╝ ╚██╗ ██╔╝██║██║   ██║██║██║                      ║
+║      ██║  ██║███████║██║  ██║         ╚████╔╝ ██║╚██████╔╝██║███████╗                 ║
+║      ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝          ╚═══╝  ╚═╝ ╚═════╝ ╚═╝╚══════╝                 ║
+║                                                                                       ║
+║                      Mental Health Risk Detection Service v5.0                        ║
+║                                                                                       ║
+║                   The Alphabet Cartel - https://discord.gg/alphabetcartel             ║
+║                                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+"""
+    if _USE_COLORS:
+        print(f"{Colors.HEADER}{banner}{Colors.RESET}")
     else:
-        # Modify group if it exists and GID differs
-        if group_exists(groupname):
-            current_gid = grp.getgrnam(groupname).gr_gid
-            if current_gid != target_gid:
-                print(
-                    f"📝 Modifying group '{groupname}' GID: {current_gid} → {target_gid}"
+        print(banner)
+
+
+def print_header() -> None:
+    """Print the startup header."""
+    border = "━" * 60
+    if _USE_COLORS:
+        print(f"\n{Colors.HEADER}{border}{Colors.RESET}")
+        print(
+            f"{Colors.HEADER}  {COMPONENT_EMOJI} {COMPONENT_NAME.upper()} Container Entrypoint{Colors.RESET}"
+        )
+        print(f"{Colors.HEADER}{border}{Colors.RESET}\n")
+    else:
+        print(f"\n{border}")
+        print(f"  {COMPONENT_EMOJI} {COMPONENT_NAME.upper()} Container Entrypoint")
+        print(f"{border}\n")
+
+
+# =============================================================================
+# User/Group Management
+# =============================================================================
+def get_puid_pgid() -> Tuple[int, int]:
+    """Get PUID and PGID from environment variables with validation."""
+    puid_str = os.environ.get("PUID", str(DEFAULT_UID))
+    pgid_str = os.environ.get("PGID", str(DEFAULT_GID))
+
+    try:
+        puid = int(puid_str)
+    except ValueError:
+        log_warning(f"Invalid PUID '{puid_str}', using default {DEFAULT_UID}")
+        puid = DEFAULT_UID
+
+    try:
+        pgid = int(pgid_str)
+    except ValueError:
+        log_warning(f"Invalid PGID '{pgid_str}', using default {DEFAULT_GID}")
+        pgid = DEFAULT_GID
+
+    # Validate ranges
+    if not 0 <= puid <= 65534:
+        log_warning(f"PUID {puid} out of range, using default {DEFAULT_UID}")
+        puid = DEFAULT_UID
+
+    if not 0 <= pgid <= 65534:
+        log_warning(f"PGID {pgid} out of range, using default {DEFAULT_GID}")
+        pgid = DEFAULT_GID
+
+    return puid, pgid
+
+
+def is_root() -> bool:
+    """Check if the current process is running as root."""
+    return os.geteuid() == 0
+
+
+def get_user_info(username: str) -> Tuple[Optional[int], Optional[int]]:
+    """Get current UID and GID for a user."""
+    try:
+        user_info = pwd.getpwnam(username)
+        return user_info.pw_uid, user_info.pw_gid
+    except KeyError:
+        return None, None
+
+
+def get_group_gid(groupname: str) -> Optional[int]:
+    """Get GID for a group by name."""
+    try:
+        group_info = grp.getgrnam(groupname)
+        return group_info.gr_gid
+    except KeyError:
+        return None
+
+
+def create_or_modify_group(groupname: str, gid: int) -> bool:
+    """Create a group or modify existing group's GID."""
+    current_gid = get_group_gid(groupname)
+
+    if current_gid is None:
+        try:
+            subprocess.run(
+                ["groupadd", "--gid", str(gid), groupname],
+                check=True,
+                capture_output=True,
+            )
+            log_success(f"Created group '{groupname}' with GID {gid}")
+            return True
+        except subprocess.CalledProcessError as e:
+            log_error(f"Failed to create group: {e.stderr.decode() if e.stderr else e}")
+            return False
+    elif current_gid != gid:
+        try:
+            subprocess.run(
+                ["groupmod", "-o", "-g", str(gid), groupname],
+                check=True,
+                capture_output=True,
+            )
+            log_success(f"Modified group '{groupname}' GID: {current_gid} → {gid}")
+            return True
+        except subprocess.CalledProcessError as e:
+            log_error(f"Failed to modify group: {e.stderr.decode() if e.stderr else e}")
+            return False
+    else:
+        log_info(f"Group '{groupname}' already has GID {gid}")
+        return True
+
+
+def create_or_modify_user(username: str, uid: int, gid: int) -> bool:
+    """Create a user or modify existing user's UID/GID."""
+    current_uid, current_gid = get_user_info(username)
+
+    if current_uid is None:
+        try:
+            subprocess.run(
+                [
+                    "useradd",
+                    "--uid",
+                    str(uid),
+                    "--gid",
+                    str(gid),
+                    "--shell",
+                    "/bin/bash",
+                    "--create-home",
+                    "--no-log-init",
+                    username,
+                ],
+                check=True,
+                capture_output=True,
+            )
+            log_success(f"Created user '{username}' with UID {uid}")
+            return True
+        except subprocess.CalledProcessError as e:
+            log_error(f"Failed to create user: {e.stderr.decode() if e.stderr else e}")
+            return False
+    else:
+        needs_update = current_uid != uid or current_gid != gid
+        if needs_update:
+            try:
+                subprocess.run(
+                    ["usermod", "-o", "-u", str(uid), "-g", str(gid), username],
+                    check=True,
+                    capture_output=True,
                 )
-                run_command(["groupmod", "-g", str(target_gid), groupname])
-
-        # Modify user if it exists and UID differs
-        if user_exists(username):
-            current_uid = pwd.getpwnam(username).pw_uid
-            if current_uid != target_uid:
-                print(
-                    f"📝 Modifying user '{username}' UID: {current_uid} → {target_uid}"
+                log_success(
+                    f"Modified user '{username}': UID {current_uid}→{uid}, GID {current_gid}→{gid}"
                 )
-                run_command(["usermod", "-u", str(target_uid), username])
+                return True
+            except subprocess.CalledProcessError as e:
+                log_error(
+                    f"Failed to modify user: {e.stderr.decode() if e.stderr else e}"
+                )
+                return False
+        else:
+            log_info(f"User '{username}' already has UID {uid}, GID {gid}")
+            return True
 
-        # Fix ownership of writable directories
-        writable_dirs = ["/app/logs", "/app/models-cache"]
-        for directory in writable_dirs:
-            if os.path.exists(directory):
-                print(f"📁 Fixing ownership: {directory}")
-                run_command(["chown", "-R", f"{target_uid}:{target_gid}", directory])
 
-        # Drop privileges and execute main application
-        print(f"🔐 Dropping privileges to {username} ({target_uid}:{target_gid})")
-        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+# =============================================================================
+# Permission Management
+# =============================================================================
+def fix_ownership(uid: int, gid: int, directories: Optional[List[str]] = None) -> None:
+    """Fix ownership of application directories."""
+    dirs_to_fix = directories or WRITABLE_DIRECTORIES
 
-        # Set environment for the new user
-        os.environ["HOME"] = f"/app"
-        os.environ["USER"] = username
+    if not dirs_to_fix:
+        return
 
-        # Change to target group and user
-        os.setgid(target_gid)
-        os.setuid(target_uid)
+    log_info("Fixing directory ownership...")
 
-    # Execute the main application
-    print("🚀 Starting Ash-Vigil...")
-    os.chdir("/app")
+    for dir_path in dirs_to_fix:
+        path = Path(dir_path)
+        try:
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+                log_info(f"  Created: {dir_path}")
 
-    # Replace current process with the main application
-    os.execvp(
-        "python",
-        [
-            "python",
-            "-m",
-            "uvicorn",
-            "src.api.app:app",
-            "--host",
-            os.environ.get("VIGIL_API_HOST", "0.0.0.0"),
-            "--port",
-            os.environ.get("VIGIL_API_PORT", "30882"),
-        ],
-    )
+            for item in path.rglob("*"):
+                try:
+                    os.chown(item, uid, gid)
+                except PermissionError:
+                    pass
+            os.chown(path, uid, gid)
+            log_success(f"  ✓ {dir_path}")
+
+        except Exception as e:
+            log_warning(f"  Could not fix {dir_path}: {e}")
+
+
+# =============================================================================
+# Privilege Management
+# =============================================================================
+def setup_user_and_permissions(puid: int, pgid: int) -> bool:
+    """Main setup function - creates user/group and fixes permissions."""
+    log_info(f"PUID: {puid}")
+    log_info(f"PGID: {pgid}")
+
+    if not is_root():
+        log_warning("Not running as root - skipping user/group setup")
+        log_info(f"Running as UID={os.getuid()}, GID={os.getgid()}")
+        return True
+
+    if not create_or_modify_group(APP_GROUP, pgid):
+        return False
+
+    if not create_or_modify_user(APP_USER, puid, pgid):
+        return False
+
+    fix_ownership(puid, pgid)
+
+    log_success("User and permissions configured")
+    return True
+
+
+def drop_privileges(puid: int, pgid: int) -> None:
+    """Drop privileges from root to the specified user/group."""
+    if not is_root():
+        return
+
+    try:
+        try:
+            user_info = pwd.getpwnam(APP_USER)
+            home_dir = user_info.pw_dir
+        except KeyError:
+            home_dir = str(APP_HOME)
+
+        os.environ["HOME"] = home_dir
+        os.environ["USER"] = APP_USER
+        os.environ["LOGNAME"] = APP_USER
+
+        os.setgroups([])
+        os.setgid(pgid)
+        os.setuid(puid)
+
+        log_success(f"Dropped privileges to UID={os.getuid()}, GID={os.getgid()}")
+
+    except Exception as e:
+        log_error(f"Failed to drop privileges: {e}")
+        raise
+
+
+# =============================================================================
+# Application Execution
+# =============================================================================
+def execute_command(command: List[str]) -> None:
+    """Execute the application command (replaces current process)."""
+    log_info("Starting Ash-Vigil...")
+    log_info(f"Command: {' '.join(command)}")
+    if _USE_COLORS:
+        print(f"{Colors.HEADER}{'━' * 60}{Colors.RESET}\n")
+    else:
+        print(f"{'━' * 60}\n")
+
+    os.execvp(command[0], command)
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+def main() -> int:
+    """Main entrypoint function."""
+    print_startup_banner()
+    print_header()
+
+    puid, pgid = get_puid_pgid()
+
+    if not setup_user_and_permissions(puid, pgid):
+        log_error("Failed to setup user - exiting")
+        return 1
+
+    drop_privileges(puid, pgid)
+
+    if len(sys.argv) > 1:
+        command = sys.argv[1:]
+    else:
+        command = DEFAULT_COMMAND
+
+    execute_command(command)
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
