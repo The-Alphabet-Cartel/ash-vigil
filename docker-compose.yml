@@ -49,15 +49,6 @@ services:
 
     environment:
       <<: *env
-      # API Configuration
-      VIGIL_API_HOST: ${VIGIL_HOST:-0.0.0.0}
-      VIGIL_API_PORT: ${VIGIL_PORT:-30882}
-      # Model Configuration
-      VIGIL_MODEL_NAME: ${VIGIL_MODEL_NAME:-ourafla/mental-health-bert-finetuned}
-      VIGIL_MODEL_DEVICE: ${VIGIL_MODEL_DEVICE:-cuda}
-      # Logging
-      VIGIL_LOG_LEVEL: ${VIGIL_LOG_LEVEL:-INFO}
-      # GPU
       NVIDIA_VISIBLE_DEVICES: all
     env_file:
       - .env
