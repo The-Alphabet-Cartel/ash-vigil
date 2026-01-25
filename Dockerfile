@@ -33,11 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create app directory
 WORKDIR /app
 
-# Copy requirements first (for better caching)
-COPY requirements.txt .
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 
 # -----------------------------------------------------------------------------
@@ -62,6 +64,8 @@ LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/as
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
+    APP_HOME=/app \
+    PATH="/opt/venv/bin:$PATH" \
     # Application
     VIGIL_API_HOST=0.0.0.0 \
     VIGIL_API_PORT=30882 \
@@ -87,21 +91,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # Create app directories (owned by root initially, entrypoint fixes ownership)
-RUN mkdir -p /app/config /app/models-cache /app/logs
+RUN mkdir -p ${APP_HOME}/config ${APP_HOME}/models-cache ${APP_HOME}/logs
 
 # Set working directory
-WORKDIR /app
+WORKDIR ${APP_HOME}
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
 
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
 # Copy application code
-COPY src/ /app/src/
-COPY main.py /app/
-COPY docker-entrypoint.py /app/
+COPY src/ ${APP_HOME}/src/
+COPY main.py ${APP_HOME}/
+COPY docker-entrypoint.py ${APP_HOME}/
 
 # Make entrypoint executable
-RUN chmod +x /app/docker-entrypoint.py 2>/dev/null || true
+RUN chmod +x ${APP_HOME}/docker-entrypoint.py 2>/dev/null || true
 
 # NOTE: We do NOT switch to non-root user here.
 # The entrypoint.py handles:
