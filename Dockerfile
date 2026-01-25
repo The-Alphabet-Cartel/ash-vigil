@@ -13,7 +13,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Builder
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.11-slim AS builder
 
 # Build arguments
 ARG PIP_NO_CACHE_DIR=1
@@ -43,7 +43,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.11-slim AS runtime
 
 # Default user/group IDs (can be overridden at runtime via PUID/PGID)
 ARG DEFAULT_UID=1000
