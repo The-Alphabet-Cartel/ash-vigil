@@ -283,6 +283,7 @@ def create_or_modify_user(username: str, uid: int, gid: int) -> bool:
             subprocess.run(
                 [
                     "useradd",
+                    "-o",
                     "--uid",
                     str(uid),
                     "--gid",
