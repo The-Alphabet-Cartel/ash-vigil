@@ -31,8 +31,8 @@ services:
   # Ash-Vigil Risk Detection NLP
   # ===========================================================================
   ash-vigil:
-    image: ghcr.io/the-alphabet-cartel/ash-vault:latest
-    container_name: ash-vault-backup
+    image: ghcr.io/the-alphabet-cartel/ash-vigil:latest
+    container_name: ash-vigil
     build:
       context: .
       dockerfile: Dockerfile
