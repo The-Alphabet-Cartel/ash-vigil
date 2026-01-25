@@ -248,7 +248,7 @@ def create_or_modify_group(groupname: str, gid: int) -> bool:
     if current_gid is None:
         try:
             subprocess.run(
-                ["groupadd", "--gid", str(gid), groupname],
+                ["groupadd", "-o", "--gid", str(gid), groupname],
                 check=True,
                 capture_output=True,
             )
