@@ -99,9 +99,6 @@ WORKDIR ${APP_HOME}
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-
 # Copy application code
 COPY src/ ${APP_HOME}/src/
 COPY main.py ${APP_HOME}/
