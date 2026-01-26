@@ -60,6 +60,7 @@ class AnalyzeResponse(BaseModel):
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_label: str
     human_label: str = Field(..., description="Human-readable classification from model")
+    raw_label: str = Field(..., description="Raw label from model (e.g., LABEL_3)")
     confidence: float = Field(..., ge=0.0, le=1.0)
     model_version: str
     inference_time_ms: float
@@ -218,6 +219,7 @@ async def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         risk_score=result["score"],
         risk_label=result["label"],
         human_label=result.get("human_label", result["label"]),
+        raw_label=result.get("raw_label", "unknown"),
         confidence=result["confidence"],
         model_version=model_manager.model_name,
         inference_time_ms=round(inference_time, 2),
