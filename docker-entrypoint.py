@@ -28,7 +28,7 @@ DESCRIPTION:
     4. Starts the FastAPI server via uvicorn
 
     This approach follows the project's "No Bash Scripting" philosophy
-    while enabling LinuxServer.io-style user configuration.
+    while enabling user configuration.
 
 USAGE:
     # Called automatically by Docker
