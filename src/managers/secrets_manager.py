@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Secrets Manager - Handles Docker Secrets and local development secrets
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-1
-LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - Skeleton Setup
+FILE VERSION: v5.0-1-1.2-1
+LAST MODIFIED: 2026-01-26
+PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 # Module version
-__version__ = "v5.0-1-1.0-1"
+__version__ = "v5.0-1-1.2-1"
 
 # Initialize logger
 logger = logging.getLogger(__name__)

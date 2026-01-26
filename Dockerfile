@@ -2,6 +2,8 @@
 # Ash-Vigil Dockerfile
 # Mental Health Risk Detection Service
 # =============================================================================
+# FILE VERSION: v5.0-1-1.2-1
+# LAST MODIFIED: 2026-01-26
 # The Alphabet Cartel - https://discord.gg/alphabetcartel | https://alphabetcartel.org
 # =============================================================================
 #
@@ -55,7 +57,7 @@ ARG DEFAULT_GID=1000
 LABEL maintainer="PapaBearDoes <github.com/PapaBearDoes>"
 LABEL org.opencontainers.image.title="Ash-Vigil"
 LABEL org.opencontainers.image.description="Mental Health Risk Detection Service for Ash Ecosystem"
-LABEL org.opencontainers.image.version="5.0.0"
+LABEL org.opencontainers.image.version="5.0.1"
 LABEL org.opencontainers.image.vendor="The Alphabet Cartel"
 LABEL org.opencontainers.image.url="https://github.com/the-alphabet-cartel/ash-vigil"
 LABEL org.opencontainers.image.source="https://github.com/the-alphabet-cartel/ash-vigil"
@@ -67,12 +69,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_HOME=/app \
     PATH="/opt/venv/bin:$PATH" \
     # Application
-    VIGIL_API_HOST=0.0.0.0 \
-    VIGIL_API_PORT=30882 \
+    VIGIL_HOST=0.0.0.0 \
+    VIGIL_PORT=30882 \
     VIGIL_LOG_LEVEL=INFO \
+    VIGIL_LOG_FORMAT=human \
     # Model settings
     VIGIL_MODEL_NAME=ourafla/mental-health-bert-finetuned \
     VIGIL_MODEL_DEVICE=cuda \
+    VIGIL_MODEL_MAX_LENGTH=512 \
+    VIGIL_MODEL_CACHE_DIR=/app/models-cache \
     # HuggingFace cache
     HF_HOME=/app/models-cache \
     # CUDA
@@ -109,15 +114,16 @@ RUN chmod +x ${APP_HOME}/docker-entrypoint.py 2>/dev/null || true
 
 # NOTE: We do NOT switch to non-root user here.
 # The entrypoint.py handles:
-# 1. Creating user with PUID/PGID
-# 2. Fixing ownership of /app directories
-# 3. Dropping privileges before starting the server
+# 1. Pre-downloading the ML model (while root, for cache permissions)
+# 2. Creating user with PUID/PGID
+# 3. Fixing ownership of /app directories
+# 4. Dropping privileges before starting the server
 
 # Expose port
 EXPOSE 30882
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:30882/health || exit 1
 
 # Use tini as init system

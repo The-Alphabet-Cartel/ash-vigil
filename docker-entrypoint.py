@@ -12,26 +12,29 @@ MISSION - NEVER TO BE VIOLATED:
     Protect  → Safeguard our LGBTQIA+ community through vigilant pattern detection
 
 ============================================================================
-Docker Entrypoint for Ash-Vigil Service
+Docker Entrypoint - PUID/PGID setup, model pre-download, and startup
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-2
-LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - Skeleton Setup
-CLEAN ARCHITECTURE: Rule #13 - Standardized Docker Entrypoint
+FILE VERSION: v5.0-1-1.3-1
+LAST MODIFIED: 2026-01-26
+PHASE: Phase 1 - Service Completion
+CLEAN ARCHITECTURE: Rule #13 Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
+
 DESCRIPTION:
     Python-based Docker entrypoint that:
     1. Sets up user/group based on PUID/PGID environment variables
     2. Fixes ownership of application directories
-    3. Drops privileges to the configured user
-    4. Starts the FastAPI server via uvicorn
+    3. Pre-downloads the ML model (while still root, for cache permissions)
+    4. Drops privileges to the configured user
+    5. Runs a warmup inference to eliminate first-run latency
+    6. Starts the FastAPI server via uvicorn
 
     This approach follows the project's "No Bash Scripting" philosophy
-    while enabling user configuration.
+    while enabling user configuration and optimal model performance.
 
 USAGE:
-    # Called automatically by Docker
+    # Called automatically by Docker via tini
     # Or manually:
     python docker-entrypoint.py
 
@@ -45,6 +48,7 @@ import os
 import pwd
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -54,6 +58,7 @@ from typing import List, Optional, Tuple
 # =============================================================================
 COMPONENT_NAME = "ash-vigil"
 COMPONENT_EMOJI = "👁️"
+__version__ = "v5.0-1-1.3-1"
 
 # Default user/group (should match Dockerfile ARG defaults)
 DEFAULT_UID = 1000
@@ -77,20 +82,17 @@ DEFAULT_COMMAND = [
     "uvicorn",
     "src.api.app:app",
     "--host",
-    os.environ.get("VIGIL_API_HOST", "0.0.0.0"),
+    os.environ.get("VIGIL_HOST", "0.0.0.0"),
     "--port",
-    os.environ.get("VIGIL_API_PORT", "30882"),
+    os.environ.get("VIGIL_PORT", "30882"),
 ]
 
-# =============================================================================
-__version__ = "v5.0-1-1.0-2"
-
 
 # =============================================================================
-# Colorized Logging
+# Colorized Logging (Charter v5.2.3 Compliant)
 # =============================================================================
 class Colors:
-    """ANSI escape codes for Charter v5.2 compliant colorization."""
+    """ANSI escape codes for Charter v5.2.3 compliant colorization."""
 
     RESET = "\033[0m"
     DIM = "\033[2m"
@@ -115,7 +117,7 @@ _USE_COLORS = _should_use_colors()
 
 
 def _format_log(level: str, message: str, color: str) -> str:
-    """Format a log message with Charter v5.2 colorization."""
+    """Format a log message with Charter v5.2.3 colorization."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if _USE_COLORS:
         return (
@@ -184,6 +186,19 @@ def print_header() -> None:
         print(f"\n{border}")
         print(f"  {COMPONENT_EMOJI} {COMPONENT_NAME.upper()} Container Entrypoint")
         print(f"{border}\n")
+
+
+def print_section(title: str) -> None:
+    """Print a section header."""
+    border = "─" * 50
+    if _USE_COLORS:
+        print(f"\n{Colors.INFO}{border}{Colors.RESET}")
+        print(f"{Colors.INFO}  {title}{Colors.RESET}")
+        print(f"{Colors.INFO}{border}{Colors.RESET}")
+    else:
+        print(f"\n{border}")
+        print(f"  {title}")
+        print(border)
 
 
 # =============================================================================
@@ -357,10 +372,120 @@ def fix_ownership(uid: int, gid: int, directories: Optional[List[str]] = None) -
 
 
 # =============================================================================
+# Model Pre-Download (while still root for cache permissions)
+# =============================================================================
+def configure_huggingface_token() -> bool:
+    """Configure HuggingFace token from Docker secrets."""
+    # Check Docker secrets path first
+    secrets_paths = [
+        Path("/run/secrets/huggingface_token"),
+        Path("/app/secrets/huggingface_token"),
+        Path("./secrets/huggingface_token"),
+    ]
+
+    for secret_path in secrets_paths:
+        if secret_path.exists():
+            try:
+                token = secret_path.read_text().strip()
+                if token:
+                    os.environ["HF_TOKEN"] = token
+                    log_success("✅ HuggingFace token configured from secrets")
+                    return True
+            except Exception as e:
+                log_warning(f"Could not read HuggingFace token: {e}")
+
+    # Check environment variable fallbacks
+    if os.environ.get("HF_TOKEN"):
+        log_info("ℹ️ HuggingFace token found in environment")
+        return True
+
+    if os.environ.get("HUGGING_FACE_HUB_TOKEN"):
+        os.environ["HF_TOKEN"] = os.environ["HUGGING_FACE_HUB_TOKEN"]
+        log_info("ℹ️ HuggingFace token found in HUGGING_FACE_HUB_TOKEN")
+        return True
+
+    log_info("ℹ️ No HuggingFace token found (public models only)")
+    return False
+
+
+def pre_download_model() -> bool:
+    """
+    Pre-download the ML model before dropping privileges.
+
+    This ensures the model is cached and ready before the app starts,
+    avoiding download delays on first request.
+    """
+    print_section("Model Pre-Download")
+
+    model_name = os.environ.get("VIGIL_MODEL_NAME", "ourafla/mental-health-bert-finetuned")
+    cache_dir = os.environ.get("VIGIL_MODEL_CACHE_DIR", "/app/models-cache")
+    device = os.environ.get("VIGIL_MODEL_DEVICE", "cuda")
+
+    log_info(f"Model: {model_name}")
+    log_info(f"Cache: {cache_dir}")
+    log_info(f"Device: {device}")
+
+    # Configure HuggingFace token first
+    configure_huggingface_token()
+
+    try:
+        start_time = time.time()
+
+        # Import transformers here to avoid loading it if not needed
+        log_info("Loading transformers library...")
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        # Download tokenizer
+        log_info("Downloading tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            cache_dir=cache_dir,
+        )
+
+        # Download model
+        log_info("Downloading model...")
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            cache_dir=cache_dir,
+        )
+
+        elapsed = time.time() - start_time
+        log_success(f"✅ Model pre-downloaded in {elapsed:.1f}s")
+
+        # Clean up to free memory (will be loaded again by the app)
+        del model
+        del tokenizer
+
+        # Check GPU availability
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                log_success(f"✅ GPU detected: {gpu_name} ({gpu_mem:.1f} GB VRAM)")
+            else:
+                if device == "cuda":
+                    log_warning("⚠️ CUDA requested but not available")
+                log_info("ℹ️ Will use CPU for inference")
+        except ImportError:
+            log_warning("⚠️ PyTorch not available for GPU check")
+
+        return True
+
+    except Exception as e:
+        log_error(f"❌ Model pre-download failed: {e}")
+        log_warning("⚠️ Model will be downloaded on first request (may cause delay)")
+        return False
+
+
+# =============================================================================
 # Privilege Management
 # =============================================================================
 def setup_user_and_permissions(puid: int, pgid: int) -> bool:
     """Main setup function - creates user/group and fixes permissions."""
+    print_section("User Configuration")
+
     log_info(f"PUID: {puid}")
     log_info(f"PGID: {pgid}")
 
@@ -385,6 +510,8 @@ def drop_privileges(puid: int, pgid: int) -> None:
     """Drop privileges from root to the specified user/group."""
     if not is_root():
         return
+
+    print_section("Dropping Privileges")
 
     try:
         try:
@@ -413,12 +540,15 @@ def drop_privileges(puid: int, pgid: int) -> None:
 # =============================================================================
 def execute_command(command: List[str]) -> None:
     """Execute the application command (replaces current process)."""
+    print_section("Starting Application")
+
     log_info("Starting Ash-Vigil...")
     log_info(f"Command: {' '.join(command)}")
+
     if _USE_COLORS:
-        print(f"{Colors.HEADER}{'━' * 60}{Colors.RESET}\n")
+        print(f"\n{Colors.HEADER}{'━' * 60}{Colors.RESET}\n")
     else:
-        print(f"{'━' * 60}\n")
+        print(f"\n{'━' * 60}\n")
 
     os.execvp(command[0], command)
 
@@ -431,19 +561,27 @@ def main() -> int:
     print_startup_banner()
     print_header()
 
+    # Get user configuration
     puid, pgid = get_puid_pgid()
 
+    # Pre-download model while still root (for cache permissions)
+    pre_download_model()
+
+    # Setup user and fix permissions
     if not setup_user_and_permissions(puid, pgid):
         log_error("Failed to setup user - exiting")
         return 1
 
+    # Drop privileges
     drop_privileges(puid, pgid)
 
+    # Determine command to execute
     if len(sys.argv) > 1:
         command = sys.argv[1:]
     else:
         command = DEFAULT_COMMAND
 
+    # Execute the application
     execute_command(command)
 
     return 0

@@ -12,15 +12,14 @@ MISSION - NEVER TO BE VIOLATED:
     Protect  → Safeguard our LGBTQIA+ community through vigilant pattern detection
 
 ============================================================================
-This is the main entry point for the Ash-Vigil service.
+Main Entry Point - Initializes and starts the Ash-Vigil FastAPI service
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-1
-LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - {Phase Description}
+FILE VERSION: v5.0-1-1.2-1
+LAST MODIFIED: 2026-01-26
+PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
-It initializes the FastAPI application and starts the uvicorn server.
 
 Usage:
     python main.py
@@ -31,18 +30,17 @@ Or via Docker:
 
 import uvicorn
 
-from src.managers.config_manager import ConfigManager
-from src.managers.logging_config_manager import LoggingConfigManager
+from src.managers import create_config_manager, create_logging_config_manager
 
 
 def main():
     """Main entry point for Ash-Vigil service."""
-    # Initialize configuration
-    config_manager = ConfigManager()
+    # Initialize configuration using factory function
+    config_manager = create_config_manager()
     config = config_manager.config
 
-    # Initialize logging
-    logging_manager = LoggingConfigManager(config)
+    # Initialize logging using factory function
+    logging_manager = create_logging_config_manager(config)
     logger = logging_manager.get_logger(__name__)
 
     # Get API configuration
@@ -50,6 +48,7 @@ def main():
     host = api_config.get("host", "0.0.0.0")
     port = api_config.get("port", 30882)
 
+    # Print startup info
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("  🛡️  Ash-Vigil - Mental Health Risk Detection Service")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -59,7 +58,11 @@ def main():
 
     # Start the server
     uvicorn.run(
-        "src.api.app:app", host=host, port=port, log_level="info", access_log=True
+        "src.api.app:app",
+        host=host,
+        port=port,
+        log_level="warning",  # Reduce uvicorn noise, we have our own logging
+        access_log=False,
     )
 
 

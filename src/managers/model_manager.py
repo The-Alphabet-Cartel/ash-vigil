@@ -11,24 +11,23 @@ MISSION - NEVER TO BE VIOLATED:
     Protect  → Safeguard our LGBTQIA+ community through vigilant pattern detection
 
 ============================================================================
-Manages the loading, inference, and lifecycle of the mental health risk detection model.
+Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-2
-LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - Skeleton Setup
+FILE VERSION: v5.0-1-1.2-1
+LAST MODIFIED: 2026-01-26
+PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
-Supports GPU acceleration via CUDA and gated model access via HuggingFace token.
 """
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
-from src.managers.logging_config_manager import LoggingConfigManager
+from src.managers.logging_config_manager import create_logging_config_manager
 from src.managers.secrets_manager import create_secrets_manager
 
 
@@ -37,6 +36,12 @@ class ModelManager:
     Manages the mental health risk detection model.
 
     Handles model loading, inference, GPU management, and cleanup.
+    Supports GPU acceleration via CUDA and gated model access via HuggingFace token.
+
+    Usage:
+        model_manager = create_model_manager(config)
+        await model_manager.load_model()
+        result = await model_manager.predict("some text")
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -50,8 +55,8 @@ class ModelManager:
         self._model_config = config.get("model", {})
         self._risk_labels = config.get("risk_labels", {})
 
-        # Get logger
-        logging_manager = LoggingConfigManager(config)
+        # Get logger using factory function
+        logging_manager = create_logging_config_manager(config)
         self._logger = logging_manager.get_logger(__name__)
 
         # Initialize secrets manager and configure HuggingFace
@@ -71,6 +76,7 @@ class ModelManager:
         )
         self._max_length = self._model_config.get("max_length", 512)
         self._requested_device = self._model_config.get("device", "cuda")
+        self._cache_dir = self._model_config.get("cache_dir", "/app/models-cache")
 
     @property
     def is_loaded(self) -> bool:
@@ -100,6 +106,7 @@ class ModelManager:
         HuggingFace token is automatically used if available for gated models.
         """
         self._logger.info(f"Loading model: {self.model_name}")
+        self._logger.info(f"Cache directory: {self._cache_dir}")
 
         if self._hf_token_configured:
             self._logger.info("✅ HuggingFace token configured (gated model access enabled)")
@@ -136,12 +143,14 @@ class ModelManager:
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_name,
             token=token,
+            cache_dir=self._cache_dir,
         )
 
         # Load model
         self._model = AutoModelForSequenceClassification.from_pretrained(
             self.model_name,
             token=token,
+            cache_dir=self._cache_dir,
         ).to(self._device)
 
         # Create pipeline for easier inference
@@ -194,6 +203,26 @@ class ModelManager:
             "raw_label": "unknown",
             "raw_score": 0.0,
         }
+
+    def predict_batch_sync(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """
+        Synchronous batch prediction for multiple texts.
+
+        Args:
+            texts: List of texts to analyze
+
+        Returns:
+            List of result dictionaries
+        """
+        if not self._is_loaded:
+            raise RuntimeError("Model not loaded. Call load_model() first.")
+
+        results = []
+        for text in texts:
+            result = self._predict_sync(text)
+            results.append(result)
+
+        return results
 
     def _normalize_result(self, label: str, score: float) -> Dict[str, Any]:
         """
@@ -258,6 +287,47 @@ class ModelManager:
         except Exception:
             return None
 
+    def get_model_info(self) -> Dict[str, Any]:
+        """
+        Get information about the loaded model.
+
+        Returns:
+            Dictionary with model information
+        """
+        return {
+            "name": self.model_name,
+            "device": self.device,
+            "is_loaded": self._is_loaded,
+            "max_length": self._max_length,
+            "cache_dir": self._cache_dir,
+            "gpu_available": self.gpu_available,
+            "hf_token_configured": self._hf_token_configured,
+        }
+
+    async def warmup(self, warmup_text: str = "This is a warmup inference.") -> float:
+        """
+        Perform a warmup inference to eliminate first-run latency.
+
+        Args:
+            warmup_text: Text to use for warmup inference
+
+        Returns:
+            Warmup inference time in milliseconds
+        """
+        import time
+
+        if not self._is_loaded:
+            raise RuntimeError("Model not loaded. Call load_model() first.")
+
+        self._logger.info("🔥 Running warmup inference...")
+
+        start = time.perf_counter()
+        await self.predict(warmup_text)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        self._logger.success(f"✅ Warmup complete in {elapsed_ms:.1f}ms")
+        return elapsed_ms
+
     async def cleanup(self) -> None:
         """Clean up model resources."""
         self._logger.info("Cleaning up model resources...")
@@ -298,6 +368,12 @@ def create_model_manager(config: Dict[str, Any]) -> ModelManager:
 
     Returns:
         Configured ModelManager instance
+
+    Example:
+        >>> config = create_config_manager().config
+        >>> model_manager = create_model_manager(config)
+        >>> await model_manager.load_model()
+        >>> result = await model_manager.predict("some text")
     """
     return ModelManager(config)
 

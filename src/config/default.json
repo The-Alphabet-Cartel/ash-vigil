@@ -1,18 +1,29 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.0-1-1.0-1",
-		"last_modified": "2026-01-24",
-		"clean_architecture": "v5.2.2",
+		"file_version": "v5.0-1-1.2-1",
+		"last_modified": "2026-01-26",
+		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
 	},
 
 	"api": {
-		"host": "${VIGIL_API_HOST}",
-		"port": "${VIGIL_API_PORT}",
+		"host": "${VIGIL_HOST}",
+		"port": "${VIGIL_PORT}",
 		"defaults": {
 			"host": "0.0.0.0",
 			"port": 30882
+		},
+		"validation": {
+			"host": {
+				"type": "string",
+				"required": true
+			},
+			"port": {
+				"type": "integer",
+				"range": [1, 65535],
+				"required": true
+			}
 		}
 	},
 
@@ -20,10 +31,32 @@
 		"name": "${VIGIL_MODEL_NAME}",
 		"device": "${VIGIL_MODEL_DEVICE}",
 		"max_length": "${VIGIL_MODEL_MAX_LENGTH}",
+		"cache_dir": "${VIGIL_MODEL_CACHE_DIR}",
 		"defaults": {
 			"name": "ourafla/mental-health-bert-finetuned",
 			"device": "cuda",
-			"max_length": 512
+			"max_length": 512,
+			"cache_dir": "/app/models-cache"
+		},
+		"validation": {
+			"name": {
+				"type": "string",
+				"required": true
+			},
+			"device": {
+				"type": "string",
+				"allowed_values": ["cuda", "cpu"],
+				"required": true
+			},
+			"max_length": {
+				"type": "integer",
+				"range": [64, 2048],
+				"required": false
+			},
+			"cache_dir": {
+				"type": "string",
+				"required": false
+			}
 		}
 	},
 
@@ -33,6 +66,18 @@
 		"defaults": {
 			"batch_size": 1,
 			"timeout_seconds": 30
+		},
+		"validation": {
+			"batch_size": {
+				"type": "integer",
+				"range": [1, 64],
+				"required": false
+			},
+			"timeout_seconds": {
+				"type": "integer",
+				"range": [1, 300],
+				"required": false
+			}
 		}
 	},
 
@@ -42,28 +87,32 @@
 		"colorize": "${VIGIL_LOG_COLORIZE}",
 		"defaults": {
 			"level": "INFO",
-			"format": "standard",
+			"format": "human",
 			"colorize": true
 		},
 		"validation": {
 			"level": {
-				"type": "enum",
-				"values": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+				"type": "string",
+				"allowed_values": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+				"required": false
 			},
 			"format": {
-				"type": "enum",
-				"values": ["standard", "json"]
+				"type": "string",
+				"allowed_values": ["human", "json"],
+				"required": false
 			},
 			"colorize": {
-				"type": "boolean"
+				"type": "boolean",
+				"required": false
 			}
 		}
 	},
 
 	"risk_labels": {
-		"high_risk": ["suicide_risk", "self_harm_risk", "crisis"],
+		"description": "Label mappings for normalizing model output to standard risk categories",
+		"high_risk": ["suicide_risk", "self_harm_risk", "crisis", "suicidal"],
 		"moderate_risk": ["depression", "anxiety", "distress"],
 		"low_risk": ["concern", "mild_distress"],
-		"safe": ["safe", "neutral", "positive"]
+		"safe": ["safe", "neutral", "positive", "normal"]
 	}
 }

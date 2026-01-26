@@ -11,22 +11,21 @@ MISSION - NEVER TO BE VIOLATED:
     Protect  → Safeguard our LGBTQIA+ community through vigilant pattern detection
 
 ============================================================================
-Configuration management following Clean Architecture Charter v5.2.2.
+Configuration Manager - Loads JSON config with environment variable overrides
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.0-1
-LAST MODIFIED: 2026-01-24
-PHASE: Phase 1 - {Phase Description}
+FILE VERSION: v5.0-1-1.2-1
+LAST MODIFIED: 2026-01-26
+PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
-Loads configuration from JSON files with environment variable overrides.
 """
 
 import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 
 class ConfigManager:
@@ -42,7 +41,7 @@ class ConfigManager:
     3. Default values in configuration
 
     Usage:
-        config_manager = ConfigManager()
+        config_manager = create_config_manager()
         port = config_manager.get("api", "port")
     """
 
@@ -58,8 +57,8 @@ class ConfigManager:
                          Defaults to src/config/default.json
         """
         self._config_path = config_path or self._get_default_config_path()
-        self._raw_config: dict = {}
-        self._config: dict = {}
+        self._raw_config: Dict[str, Any] = {}
+        self._config: Dict[str, Any] = {}
 
         self._load_config()
 
@@ -95,7 +94,7 @@ class ConfigManager:
         # Process the configuration, resolving environment variables
         self._config = self._process_config(self._raw_config)
 
-    def _process_config(self, config: dict, defaults_key: str = "defaults") -> dict:
+    def _process_config(self, config: Dict[str, Any], defaults_key: str = "defaults") -> Dict[str, Any]:
         """
         Process configuration recursively, resolving environment variables.
 
@@ -106,21 +105,43 @@ class ConfigManager:
         Returns:
             Processed configuration with resolved values
         """
-        processed = {}
+        processed: Dict[str, Any] = {}
         defaults = config.get(defaults_key, {})
 
         for key, value in config.items():
-            # Skip metadata and defaults
-            if key.startswith("_") or key == defaults_key or key == "validation":
+            # Skip metadata, defaults, validation, and description
+            if key.startswith("_") or key in (defaults_key, "validation", "description"):
                 continue
 
             if isinstance(value, dict):
-                # Recurse into nested dictionaries
-                processed[key] = self._process_config(value)
+                # Check if this is a settings category (has defaults) or just a nested dict
+                if "defaults" in value or any(
+                    isinstance(v, str) and self.ENV_PATTERN.match(str(v))
+                    for v in value.values()
+                ):
+                    # This is a settings category - process it
+                    processed[key] = self._process_config(value)
+                elif isinstance(value, list):
+                    # It's a list, keep as-is
+                    processed[key] = value
+                else:
+                    # Check if it's a simple dict (like risk_labels subcategories)
+                    has_env_vars = any(
+                        isinstance(v, str) and self.ENV_PATTERN.match(str(v))
+                        for v in value.values()
+                    )
+                    if has_env_vars:
+                        processed[key] = self._process_config(value)
+                    else:
+                        # Keep as-is (like list values in risk_labels)
+                        processed[key] = value
             elif isinstance(value, str):
                 # Resolve environment variable or use default
                 resolved = self._resolve_value(value, defaults.get(key))
                 processed[key] = resolved
+            elif isinstance(value, list):
+                # Keep lists as-is
+                processed[key] = value
             else:
                 processed[key] = value
 
@@ -183,9 +204,14 @@ class ConfigManager:
         return value
 
     @property
-    def config(self) -> dict:
+    def config(self) -> Dict[str, Any]:
         """Get the processed configuration dictionary."""
         return self._config
+
+    @property
+    def raw_config(self) -> Dict[str, Any]:
+        """Get the raw configuration dictionary (before processing)."""
+        return self._raw_config
 
     def get(self, *keys: str, default: Any = None) -> Any:
         """
@@ -199,7 +225,7 @@ class ConfigManager:
             Configuration value or default
 
         Example:
-            port = config_manager.get("api", "port", default=30885)
+            port = config_manager.get("api", "port", default=30882)
         """
         value = self._config
 
@@ -217,3 +243,41 @@ class ConfigManager:
     def reload(self) -> None:
         """Reload configuration from file."""
         self._load_config()
+
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get configuration file metadata."""
+        return self._raw_config.get("_metadata", {})
+
+
+# =============================================================================
+# Factory Function
+# =============================================================================
+
+
+def create_config_manager(config_path: Optional[str] = None) -> ConfigManager:
+    """
+    Factory function to create a ConfigManager instance.
+
+    Following Clean Architecture Rule #1: Factory Functions.
+
+    Args:
+        config_path: Optional path to configuration file
+
+    Returns:
+        Configured ConfigManager instance
+
+    Example:
+        >>> config_manager = create_config_manager()
+        >>> port = config_manager.get("api", "port")
+    """
+    return ConfigManager(config_path=config_path)
+
+
+# =============================================================================
+# Export public interface
+# =============================================================================
+
+__all__ = [
+    "ConfigManager",
+    "create_config_manager",
+]
