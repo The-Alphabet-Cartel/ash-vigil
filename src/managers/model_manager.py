@@ -13,7 +13,7 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.2-1
+FILE VERSION: v5.0-1-1.2-2
 LAST MODIFIED: 2026-01-26
 PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
@@ -44,6 +44,33 @@ class ModelManager:
         result = await model_manager.predict("some text")
     """
 
+    # Default label-to-risk mapping for common mental health models
+    # Maps model output labels to our standard risk categories
+    LABEL_RISK_MAPPING = {
+        # High risk labels
+        "suicidal": "high_risk",
+        "suicide": "high_risk",
+        "self-harm": "high_risk",
+        "self_harm": "high_risk",
+        "crisis": "high_risk",
+        # Moderate risk labels
+        "depression": "moderate_risk",
+        "anxiety": "moderate_risk",
+        "bipolar": "moderate_risk",
+        "stress": "moderate_risk",
+        "ptsd": "moderate_risk",
+        "personality disorder": "moderate_risk",
+        "personality_disorder": "moderate_risk",
+        # Low risk labels
+        "loneliness": "low_risk",
+        "sadness": "low_risk",
+        # Safe labels
+        "normal": "safe",
+        "neutral": "safe",
+        "positive": "safe",
+        "none": "safe",
+    }
+
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize the ModelManager.
@@ -69,6 +96,10 @@ class ModelManager:
         self._pipeline = None
         self._is_loaded = False
         self._device = None
+
+        # Model label mapping (populated on load)
+        self._id2label: Dict[int, str] = {}
+        self._label2id: Dict[str, int] = {}
 
         # Model info
         self.model_name = self._model_config.get(
@@ -97,6 +128,11 @@ class ModelManager:
     def hf_token_available(self) -> bool:
         """Check if HuggingFace token is configured for gated models."""
         return self._hf_token_configured
+
+    @property
+    def label_mapping(self) -> Dict[int, str]:
+        """Get the model's label mapping (id -> label name)."""
+        return self._id2label
 
     async def load_model(self) -> None:
         """
@@ -153,6 +189,14 @@ class ModelManager:
             cache_dir=self._cache_dir,
         ).to(self._device)
 
+        # Extract label mapping from model config
+        if hasattr(self._model.config, 'id2label') and self._model.config.id2label:
+            self._id2label = self._model.config.id2label
+            self._label2id = self._model.config.label2id if hasattr(self._model.config, 'label2id') else {}
+            self._logger.info(f"📋 Model labels: {self._id2label}")
+        else:
+            self._logger.warning("⚠️ Model does not have id2label mapping")
+
         # Create pipeline for easier inference
         self._pipeline = pipeline(
             "text-classification",
@@ -189,11 +233,11 @@ class ModelManager:
 
         if outputs and len(outputs) > 0:
             result = outputs[0]
-            label = result.get("label", "unknown")
+            raw_label = result.get("label", "unknown")
             score = result.get("score", 0.0)
 
             # Normalize the result
-            normalized = self._normalize_result(label, score)
+            normalized = self._normalize_result(raw_label, score)
             return normalized
 
         return {
@@ -224,50 +268,80 @@ class ModelManager:
 
         return results
 
-    def _normalize_result(self, label: str, score: float) -> Dict[str, Any]:
+    def _normalize_result(self, raw_label: str, score: float) -> Dict[str, Any]:
         """
         Normalize model output to standard format.
 
-        Maps model-specific labels to standard risk categories.
+        Maps model-specific labels to standard risk categories:
+        - high_risk: Immediate concern (suicidal, self-harm, crisis)
+        - moderate_risk: Elevated concern (depression, anxiety, stress)
+        - low_risk: Minor concern
+        - safe: No significant risk indicators
 
         Args:
-            label: Raw label from model
+            raw_label: Raw label from model (e.g., "LABEL_3" or "Suicidal")
             score: Raw confidence score
 
         Returns:
             Normalized result dictionary
         """
-        # Map label to risk category
-        label_lower = label.lower()
+        # Clean up the label
+        label_lower = raw_label.lower().strip()
 
-        # Check against configured risk labels
-        high_risk_labels = self._risk_labels.get("high_risk", [])
-        moderate_risk_labels = self._risk_labels.get("moderate_risk", [])
-        low_risk_labels = self._risk_labels.get("low_risk", [])
-        safe_labels = self._risk_labels.get("safe", [])
+        # Remove common prefixes
+        if label_lower.startswith("label_"):
+            # Try to get the actual label name from id2label
+            try:
+                label_id = int(label_lower.replace("label_", ""))
+                if label_id in self._id2label:
+                    label_lower = str(self._id2label[label_id]).lower()
+            except (ValueError, KeyError):
+                pass
 
-        if any(l.lower() in label_lower for l in high_risk_labels):
+        # Map to risk category using our mapping
+        risk_label = "unknown"
+        risk_score = score
+
+        # Check our predefined mapping
+        for label_key, risk_category in self.LABEL_RISK_MAPPING.items():
+            if label_key in label_lower:
+                risk_label = risk_category
+                break
+
+        # If still unknown, check config-based risk labels
+        if risk_label == "unknown":
+            high_risk_labels = self._risk_labels.get("high_risk", [])
+            moderate_risk_labels = self._risk_labels.get("moderate_risk", [])
+            low_risk_labels = self._risk_labels.get("low_risk", [])
+            safe_labels = self._risk_labels.get("safe", [])
+
+            if any(l.lower() in label_lower for l in high_risk_labels):
+                risk_label = "high_risk"
+            elif any(l.lower() in label_lower for l in moderate_risk_labels):
+                risk_label = "moderate_risk"
+            elif any(l.lower() in label_lower for l in low_risk_labels):
+                risk_label = "low_risk"
+            elif any(l.lower() in label_lower for l in safe_labels):
+                risk_label = "safe"
+            else:
+                # Default: use the raw label and score as-is
+                risk_label = label_lower
+
+        # Adjust risk score based on category
+        if risk_label == "high_risk":
             risk_score = score  # High confidence = high risk
-            risk_label = "high_risk"
-        elif any(l.lower() in label_lower for l in moderate_risk_labels):
+        elif risk_label == "moderate_risk":
             risk_score = score * 0.7  # Scale moderate risk
-            risk_label = "moderate_risk"
-        elif any(l.lower() in label_lower for l in low_risk_labels):
+        elif risk_label == "low_risk":
             risk_score = score * 0.4  # Scale low risk
-            risk_label = "low_risk"
-        elif any(l.lower() in label_lower for l in safe_labels):
-            risk_score = 1.0 - score  # Invert for safe (low score = safe)
-            risk_label = "safe"
-        else:
-            # Unknown label - use raw score and label
-            risk_score = score
-            risk_label = label_lower
+        elif risk_label == "safe":
+            risk_score = 1.0 - score  # Invert for safe
 
         return {
             "label": risk_label,
             "score": round(risk_score, 4),
             "confidence": round(score, 4),
-            "raw_label": label,
+            "raw_label": raw_label,
             "raw_score": round(score, 4),
         }
 
@@ -302,6 +376,7 @@ class ModelManager:
             "cache_dir": self._cache_dir,
             "gpu_available": self.gpu_available,
             "hf_token_configured": self._hf_token_configured,
+            "labels": self._id2label,
         }
 
     async def warmup(self, warmup_text: str = "This is a warmup inference.") -> float:
