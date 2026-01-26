@@ -59,6 +59,7 @@ class AnalyzeResponse(BaseModel):
     request_id: str
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_label: str
+    human_label: str = Field(..., description="Human-readable classification from model")
     confidence: float = Field(..., ge=0.0, le=1.0)
     model_version: str
     inference_time_ms: float
@@ -89,6 +90,7 @@ class EvaluateResult(BaseModel):
     id: str
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_label: str
+    human_label: str = Field(..., description="Human-readable classification from model")
     confidence: float = Field(..., ge=0.0, le=1.0)
     inference_time_ms: Optional[float] = None
     error: Optional[str] = None
@@ -215,6 +217,7 @@ async def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         request_id=request_id,
         risk_score=result["score"],
         risk_label=result["label"],
+        human_label=result.get("human_label", result["label"]),
         confidence=result["confidence"],
         model_version=model_manager.model_name,
         inference_time_ms=round(inference_time, 2),
@@ -255,6 +258,7 @@ async def evaluate_phrases(request: EvaluateRequest) -> EvaluateResponse:
                     id=phrase.id,
                     risk_score=result["score"],
                     risk_label=result["label"],
+                    human_label=result.get("human_label", result["label"]),
                     confidence=result["confidence"],
                     inference_time_ms=round(phrase_time, 2) if request.include_timing else None,
                     error=None,
@@ -271,6 +275,7 @@ async def evaluate_phrases(request: EvaluateRequest) -> EvaluateResponse:
                     id=phrase.id,
                     risk_score=0.0,
                     risk_label="error",
+                    human_label="error",
                     confidence=0.0,
                     inference_time_ms=round(phrase_time, 2) if request.include_timing else None,
                     error=str(e),
