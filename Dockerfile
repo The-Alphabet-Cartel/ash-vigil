@@ -78,7 +78,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     # CUDA
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    # Default PUID/PGID (LinuxServer.io style)
+    # Default PUID/PGID
     PUID=${DEFAULT_UID} \
     PGID=${DEFAULT_GID}
 
