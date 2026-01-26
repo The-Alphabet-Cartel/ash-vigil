@@ -13,7 +13,7 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.2-2
+FILE VERSION: v5.0-1-1.2-3
 LAST MODIFIED: 2026-01-26
 PHASE: Phase 1 - Service Completion
 CLEAN ARCHITECTURE: Compliant
@@ -44,8 +44,32 @@ class ModelManager:
         result = await model_manager.predict("some text")
     """
 
-    # Default label-to-risk mapping for common mental health models
-    # Maps model output labels to our standard risk categories
+    # ==========================================================================
+    # Model-Specific Label Mappings
+    # ==========================================================================
+    # These mappings are for models that don't have proper id2label configs.
+    # Format: "model_name": {label_id: (human_label, risk_category)}
+    #
+    # Risk categories:
+    #   - high_risk: Immediate concern (suicidal, self-harm, crisis)
+    #   - moderate_risk: Elevated concern (depression, anxiety, stress)
+    #   - low_risk: Minor concern
+    #   - safe: No significant risk indicators
+    # ==========================================================================
+
+    MODEL_LABEL_MAPPINGS = {
+        # ourafla/mental-health-bert-finetuned
+        # Trained on: ourafla/Mental-Health_Text-Classification_Dataset
+        # 4 classes: Anxiety, Depression, Normal, Suicidal (alphabetical order)
+        "ourafla/mental-health-bert-finetuned": {
+            0: ("Anxiety", "moderate_risk"),
+            1: ("Depression", "moderate_risk"),
+            2: ("Normal", "safe"),
+            3: ("Suicidal", "high_risk"),
+        },
+    }
+
+    # Default label-to-risk mapping for models with proper label names
     LABEL_RISK_MAPPING = {
         # High risk labels
         "suicidal": "high_risk",
@@ -100,6 +124,7 @@ class ModelManager:
         # Model label mapping (populated on load)
         self._id2label: Dict[int, str] = {}
         self._label2id: Dict[str, int] = {}
+        self._custom_label_mapping: Optional[Dict[int, tuple]] = None
 
         # Model info
         self.model_name = self._model_config.get(
@@ -189,8 +214,15 @@ class ModelManager:
             cache_dir=self._cache_dir,
         ).to(self._device)
 
-        # Extract label mapping from model config
-        if hasattr(self._model.config, 'id2label') and self._model.config.id2label:
+        # Check for custom label mapping first
+        if self.model_name in self.MODEL_LABEL_MAPPINGS:
+            self._custom_label_mapping = self.MODEL_LABEL_MAPPINGS[self.model_name]
+            # Build id2label from custom mapping
+            self._id2label = {k: v[0] for k, v in self._custom_label_mapping.items()}
+            self._logger.info(f"📋 Using custom label mapping for {self.model_name}")
+            self._logger.info(f"   Labels: {self._id2label}")
+        elif hasattr(self._model.config, 'id2label') and self._model.config.id2label:
+            # Use model's built-in mapping
             self._id2label = self._model.config.id2label
             self._label2id = self._model.config.label2id if hasattr(self._model.config, 'label2id') else {}
             self._logger.info(f"📋 Model labels: {self._id2label}")
@@ -285,49 +317,58 @@ class ModelManager:
         Returns:
             Normalized result dictionary
         """
-        # Clean up the label
-        label_lower = raw_label.lower().strip()
+        human_label = raw_label
+        risk_label = "unknown"
 
-        # Remove common prefixes
-        if label_lower.startswith("label_"):
-            # Try to get the actual label name from id2label
+        # Check if we have a custom mapping for this model
+        if self._custom_label_mapping is not None:
+            # Extract label ID from raw_label (e.g., "LABEL_3" -> 3)
             try:
-                label_id = int(label_lower.replace("label_", ""))
-                if label_id in self._id2label:
-                    label_lower = str(self._id2label[label_id]).lower()
-            except (ValueError, KeyError):
+                if raw_label.upper().startswith("LABEL_"):
+                    label_id = int(raw_label.split("_")[1])
+                else:
+                    # Try to find by name
+                    label_id = None
+                    for lid, (name, _) in self._custom_label_mapping.items():
+                        if name.lower() == raw_label.lower():
+                            label_id = lid
+                            break
+
+                if label_id is not None and label_id in self._custom_label_mapping:
+                    human_label, risk_label = self._custom_label_mapping[label_id]
+            except (ValueError, IndexError, KeyError):
                 pass
 
-        # Map to risk category using our mapping
-        risk_label = "unknown"
-        risk_score = score
-
-        # Check our predefined mapping
-        for label_key, risk_category in self.LABEL_RISK_MAPPING.items():
-            if label_key in label_lower:
-                risk_label = risk_category
-                break
-
-        # If still unknown, check config-based risk labels
+        # If no custom mapping or lookup failed, try generic mapping
         if risk_label == "unknown":
-            high_risk_labels = self._risk_labels.get("high_risk", [])
-            moderate_risk_labels = self._risk_labels.get("moderate_risk", [])
-            low_risk_labels = self._risk_labels.get("low_risk", [])
-            safe_labels = self._risk_labels.get("safe", [])
+            label_lower = human_label.lower().strip()
 
-            if any(l.lower() in label_lower for l in high_risk_labels):
-                risk_label = "high_risk"
-            elif any(l.lower() in label_lower for l in moderate_risk_labels):
-                risk_label = "moderate_risk"
-            elif any(l.lower() in label_lower for l in low_risk_labels):
-                risk_label = "low_risk"
-            elif any(l.lower() in label_lower for l in safe_labels):
-                risk_label = "safe"
-            else:
-                # Default: use the raw label and score as-is
-                risk_label = label_lower
+            # Check our predefined mapping
+            for label_key, risk_category in self.LABEL_RISK_MAPPING.items():
+                if label_key in label_lower:
+                    risk_label = risk_category
+                    break
 
-        # Adjust risk score based on category
+            # If still unknown, check config-based risk labels
+            if risk_label == "unknown":
+                high_risk_labels = self._risk_labels.get("high_risk", [])
+                moderate_risk_labels = self._risk_labels.get("moderate_risk", [])
+                low_risk_labels = self._risk_labels.get("low_risk", [])
+                safe_labels = self._risk_labels.get("safe", [])
+
+                if any(l.lower() in label_lower for l in high_risk_labels):
+                    risk_label = "high_risk"
+                elif any(l.lower() in label_lower for l in moderate_risk_labels):
+                    risk_label = "moderate_risk"
+                elif any(l.lower() in label_lower for l in low_risk_labels):
+                    risk_label = "low_risk"
+                elif any(l.lower() in label_lower for l in safe_labels):
+                    risk_label = "safe"
+                else:
+                    # Default: use the raw label
+                    risk_label = label_lower
+
+        # Calculate risk score based on category
         if risk_label == "high_risk":
             risk_score = score  # High confidence = high risk
         elif risk_label == "moderate_risk":
@@ -335,13 +376,16 @@ class ModelManager:
         elif risk_label == "low_risk":
             risk_score = score * 0.4  # Scale low risk
         elif risk_label == "safe":
-            risk_score = 1.0 - score  # Invert for safe
+            risk_score = 1.0 - score  # Invert for safe (low score = safe)
+        else:
+            risk_score = score
 
         return {
             "label": risk_label,
             "score": round(risk_score, 4),
             "confidence": round(score, 4),
             "raw_label": raw_label,
+            "human_label": human_label,
             "raw_score": round(score, 4),
         }
 
@@ -377,6 +421,7 @@ class ModelManager:
             "gpu_available": self.gpu_available,
             "hf_token_configured": self._hf_token_configured,
             "labels": self._id2label,
+            "has_custom_mapping": self._custom_label_mapping is not None,
         }
 
     async def warmup(self, warmup_text: str = "This is a warmup inference.") -> float:
