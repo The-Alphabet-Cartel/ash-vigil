@@ -1,7 +1,7 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.0-1-1.2-1",
+		"file_version": "v5.0-2-1.3-1",
 		"last_modified": "2026-01-26",
 		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
@@ -29,11 +29,13 @@
 
 	"model": {
 		"name": "${VIGIL_MODEL_NAME}",
+		"type": "${VIGIL_MODEL_TYPE}",
 		"device": "${VIGIL_MODEL_DEVICE}",
 		"max_length": "${VIGIL_MODEL_MAX_LENGTH}",
 		"cache_dir": "${VIGIL_MODEL_CACHE_DIR}",
 		"defaults": {
-			"name": "ourafla/mental-health-bert-finetuned",
+			"name": "facebook/bart-large-mnli",
+			"type": "zero-shot",
 			"device": "cuda",
 			"max_length": 512,
 			"cache_dir": "/app/models-cache"
@@ -42,6 +44,11 @@
 			"name": {
 				"type": "string",
 				"required": true
+			},
+			"type": {
+				"type": "string",
+				"allowed_values": ["zero-shot", "classifier"],
+				"required": false
 			},
 			"device": {
 				"type": "string",
@@ -58,6 +65,34 @@
 				"required": false
 			}
 		}
+	},
+
+	"zero_shot": {
+		"_description": "Configuration for zero-shot classification mode",
+		"candidate_labels": {
+			"_description": "Labels the model will classify text against",
+			"high_risk": [
+				"person expressing suicidal thoughts or self-harm intentions",
+				"person in immediate emotional crisis needing help"
+			],
+			"moderate_risk": [
+				"person experiencing rejection from family due to identity",
+				"person facing discrimination or social exclusion",
+				"person feeling isolated from their community",
+				"person struggling with identity acceptance"
+			],
+			"low_risk": [
+				"person venting frustration but not in crisis",
+				"person expressing mild sadness or disappointment"
+			],
+			"safe": [
+				"casual conversation about video games or gaming",
+				"person discussing fictional media or quotes",
+				"everyday conversation with no emotional distress"
+			]
+		},
+		"multi_label": false,
+		"hypothesis_template": "This text is from a {}"
 	},
 
 	"inference": {
@@ -79,6 +114,13 @@
 				"required": false
 			}
 		}
+	},
+
+	"thresholds": {
+		"_description": "Score thresholds for risk categorization",
+		"high_risk_min": 0.6,
+		"moderate_risk_min": 0.4,
+		"low_risk_min": 0.25
 	},
 
 	"logging": {
@@ -106,13 +148,5 @@
 				"required": false
 			}
 		}
-	},
-
-	"risk_labels": {
-		"description": "Label mappings for normalizing model output to standard risk categories",
-		"high_risk": ["suicide_risk", "self_harm_risk", "crisis", "suicidal"],
-		"moderate_risk": ["depression", "anxiety", "distress"],
-		"low_risk": ["concern", "mild_distress"],
-		"safe": ["safe", "neutral", "positive", "normal"]
 	}
 }

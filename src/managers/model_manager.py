@@ -13,19 +13,19 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.2-3
+FILE VERSION: v5.0-2-1.3-1
 LAST MODIFIED: 2026-01-26
-PHASE: Phase 1 - Service Completion
+PHASE: Phase 2 - Zero-Shot Classification Support
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+from transformers import pipeline
 
 from src.managers.logging_config_manager import create_logging_config_manager
 from src.managers.secrets_manager import create_secrets_manager
@@ -34,6 +34,10 @@ from src.managers.secrets_manager import create_secrets_manager
 class ModelManager:
     """
     Manages the mental health risk detection model.
+
+    Supports two model types:
+    - zero-shot: Uses NLI-based zero-shot classification with custom labels
+    - classifier: Traditional fine-tuned text classification
 
     Handles model loading, inference, GPU management, and cleanup.
     Supports GPU acceleration via CUDA and gated model access via HuggingFace token.
@@ -44,57 +48,6 @@ class ModelManager:
         result = await model_manager.predict("some text")
     """
 
-    # ==========================================================================
-    # Model-Specific Label Mappings
-    # ==========================================================================
-    # These mappings are for models that don't have proper id2label configs.
-    # Format: "model_name": {label_id: (human_label, risk_category)}
-    #
-    # Risk categories:
-    #   - high_risk: Immediate concern (suicidal, self-harm, crisis)
-    #   - moderate_risk: Elevated concern (depression, anxiety, stress)
-    #   - low_risk: Minor concern
-    #   - safe: No significant risk indicators
-    # ==========================================================================
-
-    MODEL_LABEL_MAPPINGS = {
-        # ourafla/mental-health-bert-finetuned
-        # Trained on: ourafla/Mental-Health_Text-Classification_Dataset
-        # 4 classes: Anxiety, Depression, Normal, Suicidal (alphabetical order)
-        "ourafla/mental-health-bert-finetuned": {
-            0: ("Anxiety", "moderate_risk"),
-            1: ("Depression", "moderate_risk"),
-            2: ("Normal", "safe"),
-            3: ("Suicidal", "high_risk"),
-        },
-    }
-
-    # Default label-to-risk mapping for models with proper label names
-    LABEL_RISK_MAPPING = {
-        # High risk labels
-        "suicidal": "high_risk",
-        "suicide": "high_risk",
-        "self-harm": "high_risk",
-        "self_harm": "high_risk",
-        "crisis": "high_risk",
-        # Moderate risk labels
-        "depression": "moderate_risk",
-        "anxiety": "moderate_risk",
-        "bipolar": "moderate_risk",
-        "stress": "moderate_risk",
-        "ptsd": "moderate_risk",
-        "personality disorder": "moderate_risk",
-        "personality_disorder": "moderate_risk",
-        # Low risk labels
-        "loneliness": "low_risk",
-        "sadness": "low_risk",
-        # Safe labels
-        "normal": "safe",
-        "neutral": "safe",
-        "positive": "safe",
-        "none": "safe",
-    }
-
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize the ModelManager.
@@ -104,7 +57,8 @@ class ModelManager:
         """
         self._config = config
         self._model_config = config.get("model", {})
-        self._risk_labels = config.get("risk_labels", {})
+        self._zero_shot_config = config.get("zero_shot", {})
+        self._thresholds = config.get("thresholds", {})
 
         # Get logger using factory function
         logging_manager = create_logging_config_manager(config)
@@ -115,24 +69,50 @@ class ModelManager:
         self._hf_token_configured = self._secrets_manager.configure_huggingface()
 
         # Model state
-        self._model = None
-        self._tokenizer = None
         self._pipeline = None
         self._is_loaded = False
         self._device = None
 
-        # Model label mapping (populated on load)
-        self._id2label: Dict[int, str] = {}
-        self._label2id: Dict[str, int] = {}
-        self._custom_label_mapping: Optional[Dict[int, tuple]] = None
-
         # Model info
-        self.model_name = self._model_config.get(
-            "name", "ourafla/mental-health-bert-finetuned"
-        )
+        self.model_name = self._model_config.get("name", "facebook/bart-large-mnli")
+        self.model_type = self._model_config.get("type", "zero-shot")
         self._max_length = self._model_config.get("max_length", 512)
         self._requested_device = self._model_config.get("device", "cuda")
         self._cache_dir = self._model_config.get("cache_dir", "/app/models-cache")
+
+        # Zero-shot specific setup
+        self._candidate_labels: List[str] = []
+        self._label_to_risk: Dict[str, str] = {}
+        self._hypothesis_template: str = "This text is from a {}"
+        self._multi_label: bool = False
+
+        if self.model_type == "zero-shot":
+            self._setup_zero_shot_labels()
+
+    def _setup_zero_shot_labels(self) -> None:
+        """
+        Set up candidate labels and their risk mappings from config.
+
+        Flattens the categorized labels into a single list and builds
+        a reverse mapping from label -> risk category.
+        """
+        labels_config = self._zero_shot_config.get("candidate_labels", {})
+
+        for risk_category in ["high_risk", "moderate_risk", "low_risk", "safe"]:
+            labels = labels_config.get(risk_category, [])
+            for label in labels:
+                self._candidate_labels.append(label)
+                self._label_to_risk[label] = risk_category
+
+        self._hypothesis_template = self._zero_shot_config.get(
+            "hypothesis_template", "This text is from a {}"
+        )
+        self._multi_label = self._zero_shot_config.get("multi_label", False)
+
+        self._logger.info(f"📋 Zero-shot labels configured: {len(self._candidate_labels)} labels")
+        for risk_cat in ["high_risk", "moderate_risk", "low_risk", "safe"]:
+            count = sum(1 for l, r in self._label_to_risk.items() if r == risk_cat)
+            self._logger.debug(f"   {risk_cat}: {count} labels")
 
     @property
     def is_loaded(self) -> bool:
@@ -155,18 +135,19 @@ class ModelManager:
         return self._hf_token_configured
 
     @property
-    def label_mapping(self) -> Dict[int, str]:
-        """Get the model's label mapping (id -> label name)."""
-        return self._id2label
+    def candidate_labels(self) -> List[str]:
+        """Get the candidate labels for zero-shot classification."""
+        return self._candidate_labels.copy()
 
     async def load_model(self) -> None:
         """
-        Load the model and tokenizer.
+        Load the model and create inference pipeline.
 
         Uses GPU if available and requested, falls back to CPU.
         HuggingFace token is automatically used if available for gated models.
         """
         self._logger.info(f"Loading model: {self.model_name}")
+        self._logger.info(f"Model type: {self.model_type}")
         self._logger.info(f"Cache directory: {self._cache_dir}")
 
         if self._hf_token_configured:
@@ -197,46 +178,24 @@ class ModelManager:
 
     def _load_model_sync(self) -> None:
         """Synchronous model loading (run in executor)."""
-        # Get token for gated models (transformers will also check HF_TOKEN env var)
+        # Get token for gated models
         token = self._secrets_manager.get_huggingface_token()
 
-        # Load tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name,
-            token=token,
-            cache_dir=self._cache_dir,
-        )
-
-        # Load model
-        self._model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name,
-            token=token,
-            cache_dir=self._cache_dir,
-        ).to(self._device)
-
-        # Check for custom label mapping first
-        if self.model_name in self.MODEL_LABEL_MAPPINGS:
-            self._custom_label_mapping = self.MODEL_LABEL_MAPPINGS[self.model_name]
-            # Build id2label from custom mapping
-            self._id2label = {k: v[0] for k, v in self._custom_label_mapping.items()}
-            self._logger.info(f"📋 Using custom label mapping for {self.model_name}")
-            self._logger.info(f"   Labels: {self._id2label}")
-        elif hasattr(self._model.config, 'id2label') and self._model.config.id2label:
-            # Use model's built-in mapping
-            self._id2label = self._model.config.id2label
-            self._label2id = self._model.config.label2id if hasattr(self._model.config, 'label2id') else {}
-            self._logger.info(f"📋 Model labels: {self._id2label}")
+        # Determine pipeline type based on model type
+        if self.model_type == "zero-shot":
+            pipeline_type = "zero-shot-classification"
+            self._logger.info(f"📋 Creating zero-shot pipeline with {len(self._candidate_labels)} candidate labels")
         else:
-            self._logger.warning("⚠️ Model does not have id2label mapping")
+            pipeline_type = "text-classification"
+            self._logger.info("📋 Creating text-classification pipeline")
 
-        # Create pipeline for easier inference
+        # Create pipeline
         self._pipeline = pipeline(
-            "text-classification",
-            model=self._model,
-            tokenizer=self._tokenizer,
+            pipeline_type,
+            model=self.model_name,
             device=0 if self._device.type == "cuda" else -1,
-            max_length=self._max_length,
-            truncation=True,
+            token=token,
+            model_kwargs={"cache_dir": self._cache_dir},
         )
 
     async def predict(self, text: str) -> Dict[str, Any]:
@@ -247,7 +206,7 @@ class ModelManager:
             text: Input text to analyze
 
         Returns:
-            Dictionary with score, label, and confidence
+            Dictionary with risk_label, risk_score, confidence, and details
         """
         if not self._is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -260,7 +219,131 @@ class ModelManager:
 
     def _predict_sync(self, text: str) -> Dict[str, Any]:
         """Synchronous prediction (run in executor)."""
-        # Run pipeline
+        if self.model_type == "zero-shot":
+            return self._predict_zero_shot(text)
+        else:
+            return self._predict_classifier(text)
+
+    def _predict_zero_shot(self, text: str) -> Dict[str, Any]:
+        """
+        Run zero-shot classification inference.
+
+        Args:
+            text: Input text to analyze
+
+        Returns:
+            Normalized result dictionary
+        """
+        # Run zero-shot classification
+        result = self._pipeline(
+            text,
+            candidate_labels=self._candidate_labels,
+            hypothesis_template=self._hypothesis_template,
+            multi_label=self._multi_label,
+        )
+
+        # Extract results
+        # Result format: {"sequence": text, "labels": [...], "scores": [...]}
+        top_label = result["labels"][0]
+        top_score = result["scores"][0]
+
+        # Get risk category for top label
+        risk_category = self._label_to_risk.get(top_label, "unknown")
+
+        # Calculate risk score based on category and confidence
+        risk_score = self._calculate_risk_score(risk_category, top_score, result)
+
+        # Determine final risk label based on score thresholds
+        final_risk_label = self._score_to_risk_label(risk_score)
+
+        return {
+            "risk_label": final_risk_label,
+            "risk_score": round(risk_score, 4),
+            "confidence": round(top_score, 4),
+            "matched_label": top_label,
+            "matched_category": risk_category,
+            "all_scores": {
+                label: round(score, 4)
+                for label, score in zip(result["labels"][:5], result["scores"][:5])
+            },
+        }
+
+    def _calculate_risk_score(
+        self, risk_category: str, top_score: float, full_result: Dict
+    ) -> float:
+        """
+        Calculate overall risk score from zero-shot results.
+
+        Considers:
+        - The top label's category and score
+        - Combined scores from all labels in risky categories
+
+        Args:
+            risk_category: Risk category of top label
+            top_score: Confidence score of top label
+            full_result: Full zero-shot result with all labels/scores
+
+        Returns:
+            Normalized risk score between 0 and 1
+        """
+        # Build score aggregation by risk category
+        category_scores: Dict[str, float] = {
+            "high_risk": 0.0,
+            "moderate_risk": 0.0,
+            "low_risk": 0.0,
+            "safe": 0.0,
+        }
+
+        for label, score in zip(full_result["labels"], full_result["scores"]):
+            cat = self._label_to_risk.get(label, "unknown")
+            if cat in category_scores:
+                category_scores[cat] = max(category_scores[cat], score)
+
+        # Calculate weighted risk score
+        # High risk labels contribute most, safe labels reduce score
+        risk_score = (
+            category_scores["high_risk"] * 1.0
+            + category_scores["moderate_risk"] * 0.6
+            + category_scores["low_risk"] * 0.3
+            - category_scores["safe"] * 0.3
+        )
+
+        # Clamp to [0, 1]
+        return max(0.0, min(1.0, risk_score))
+
+    def _score_to_risk_label(self, risk_score: float) -> str:
+        """
+        Convert risk score to risk label using thresholds.
+
+        Args:
+            risk_score: Calculated risk score (0-1)
+
+        Returns:
+            Risk label string
+        """
+        high_threshold = self._thresholds.get("high_risk_min", 0.6)
+        moderate_threshold = self._thresholds.get("moderate_risk_min", 0.4)
+        low_threshold = self._thresholds.get("low_risk_min", 0.25)
+
+        if risk_score >= high_threshold:
+            return "high_risk"
+        elif risk_score >= moderate_threshold:
+            return "moderate_risk"
+        elif risk_score >= low_threshold:
+            return "low_risk"
+        else:
+            return "safe"
+
+    def _predict_classifier(self, text: str) -> Dict[str, Any]:
+        """
+        Run traditional classifier inference (for backwards compatibility).
+
+        Args:
+            text: Input text to analyze
+
+        Returns:
+            Normalized result dictionary
+        """
         outputs = self._pipeline(text)
 
         if outputs and len(outputs) > 0:
@@ -268,17 +351,47 @@ class ModelManager:
             raw_label = result.get("label", "unknown")
             score = result.get("score", 0.0)
 
-            # Normalize the result
-            normalized = self._normalize_result(raw_label, score)
-            return normalized
+            # Simple mapping for classifier models
+            risk_label = self._map_classifier_label(raw_label)
+            risk_score = score if risk_label != "safe" else (1.0 - score)
+
+            return {
+                "risk_label": risk_label,
+                "risk_score": round(risk_score, 4),
+                "confidence": round(score, 4),
+                "matched_label": raw_label,
+                "matched_category": risk_label,
+                "all_scores": {raw_label: round(score, 4)},
+            }
 
         return {
-            "label": "unknown",
-            "score": 0.0,
+            "risk_label": "unknown",
+            "risk_score": 0.0,
             "confidence": 0.0,
-            "raw_label": "unknown",
-            "raw_score": 0.0,
+            "matched_label": "unknown",
+            "matched_category": "unknown",
+            "all_scores": {},
         }
+
+    def _map_classifier_label(self, raw_label: str) -> str:
+        """Map classifier output label to risk category."""
+        label_lower = raw_label.lower()
+
+        high_risk_keywords = ["suicid", "self-harm", "crisis"]
+        moderate_risk_keywords = ["depress", "anxiety", "stress", "distress"]
+        safe_keywords = ["normal", "neutral", "safe", "positive"]
+
+        for kw in high_risk_keywords:
+            if kw in label_lower:
+                return "high_risk"
+        for kw in moderate_risk_keywords:
+            if kw in label_lower:
+                return "moderate_risk"
+        for kw in safe_keywords:
+            if kw in label_lower:
+                return "safe"
+
+        return "low_risk"
 
     def predict_batch_sync(self, texts: List[str]) -> List[Dict[str, Any]]:
         """
@@ -299,95 +412,6 @@ class ModelManager:
             results.append(result)
 
         return results
-
-    def _normalize_result(self, raw_label: str, score: float) -> Dict[str, Any]:
-        """
-        Normalize model output to standard format.
-
-        Maps model-specific labels to standard risk categories:
-        - high_risk: Immediate concern (suicidal, self-harm, crisis)
-        - moderate_risk: Elevated concern (depression, anxiety, stress)
-        - low_risk: Minor concern
-        - safe: No significant risk indicators
-
-        Args:
-            raw_label: Raw label from model (e.g., "LABEL_3" or "Suicidal")
-            score: Raw confidence score
-
-        Returns:
-            Normalized result dictionary
-        """
-        human_label = raw_label
-        risk_label = "unknown"
-
-        # Check if we have a custom mapping for this model
-        if self._custom_label_mapping is not None:
-            # Extract label ID from raw_label (e.g., "LABEL_3" -> 3)
-            try:
-                if raw_label.upper().startswith("LABEL_"):
-                    label_id = int(raw_label.split("_")[1])
-                else:
-                    # Try to find by name
-                    label_id = None
-                    for lid, (name, _) in self._custom_label_mapping.items():
-                        if name.lower() == raw_label.lower():
-                            label_id = lid
-                            break
-
-                if label_id is not None and label_id in self._custom_label_mapping:
-                    human_label, risk_label = self._custom_label_mapping[label_id]
-            except (ValueError, IndexError, KeyError):
-                pass
-
-        # If no custom mapping or lookup failed, try generic mapping
-        if risk_label == "unknown":
-            label_lower = human_label.lower().strip()
-
-            # Check our predefined mapping
-            for label_key, risk_category in self.LABEL_RISK_MAPPING.items():
-                if label_key in label_lower:
-                    risk_label = risk_category
-                    break
-
-            # If still unknown, check config-based risk labels
-            if risk_label == "unknown":
-                high_risk_labels = self._risk_labels.get("high_risk", [])
-                moderate_risk_labels = self._risk_labels.get("moderate_risk", [])
-                low_risk_labels = self._risk_labels.get("low_risk", [])
-                safe_labels = self._risk_labels.get("safe", [])
-
-                if any(l.lower() in label_lower for l in high_risk_labels):
-                    risk_label = "high_risk"
-                elif any(l.lower() in label_lower for l in moderate_risk_labels):
-                    risk_label = "moderate_risk"
-                elif any(l.lower() in label_lower for l in low_risk_labels):
-                    risk_label = "low_risk"
-                elif any(l.lower() in label_lower for l in safe_labels):
-                    risk_label = "safe"
-                else:
-                    # Default: use the raw label
-                    risk_label = label_lower
-
-        # Calculate risk score based on category
-        if risk_label == "high_risk":
-            risk_score = score  # High confidence = high risk
-        elif risk_label == "moderate_risk":
-            risk_score = score * 0.7  # Scale moderate risk
-        elif risk_label == "low_risk":
-            risk_score = score * 0.4  # Scale low risk
-        elif risk_label == "safe":
-            risk_score = 1.0 - score  # Invert for safe (low score = safe)
-        else:
-            risk_score = score
-
-        return {
-            "label": risk_label,
-            "score": round(risk_score, 4),
-            "confidence": round(score, 4),
-            "raw_label": raw_label,
-            "human_label": human_label,
-            "raw_score": round(score, 4),
-        }
 
     def get_gpu_memory_used(self) -> Optional[float]:
         """
@@ -412,17 +436,22 @@ class ModelManager:
         Returns:
             Dictionary with model information
         """
-        return {
+        info = {
             "name": self.model_name,
+            "type": self.model_type,
             "device": self.device,
             "is_loaded": self._is_loaded,
             "max_length": self._max_length,
             "cache_dir": self._cache_dir,
             "gpu_available": self.gpu_available,
             "hf_token_configured": self._hf_token_configured,
-            "labels": self._id2label,
-            "has_custom_mapping": self._custom_label_mapping is not None,
         }
+
+        if self.model_type == "zero-shot":
+            info["candidate_labels_count"] = len(self._candidate_labels)
+            info["hypothesis_template"] = self._hypothesis_template
+
+        return info
 
     async def warmup(self, warmup_text: str = "This is a warmup inference.") -> float:
         """
@@ -451,14 +480,6 @@ class ModelManager:
     async def cleanup(self) -> None:
         """Clean up model resources."""
         self._logger.info("Cleaning up model resources...")
-
-        if self._model is not None:
-            del self._model
-            self._model = None
-
-        if self._tokenizer is not None:
-            del self._tokenizer
-            self._tokenizer = None
 
         if self._pipeline is not None:
             del self._pipeline

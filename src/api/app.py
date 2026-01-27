@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 FastAPI Application - REST API endpoints for risk detection
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-1-1.2-1
+FILE VERSION: v5.0-2-1.3-1
 LAST MODIFIED: 2026-01-26
-PHASE: Phase 1 - Service Completion
+PHASE: Phase 2 - Zero-Shot Classification Support
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -59,8 +59,7 @@ class AnalyzeResponse(BaseModel):
     request_id: str
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_label: str
-    human_label: str = Field(..., description="Human-readable classification from model")
-    raw_label: str = Field(..., description="Raw label from model (e.g., LABEL_3)")
+    matched_label: str = Field(..., description="The candidate label that best matched")
     confidence: float = Field(..., ge=0.0, le=1.0)
     model_version: str
     inference_time_ms: float
@@ -91,8 +90,8 @@ class EvaluateResult(BaseModel):
     id: str
     risk_score: float = Field(..., ge=0.0, le=1.0)
     risk_label: str
-    human_label: str = Field(..., description="Human-readable classification from model")
     confidence: float = Field(..., ge=0.0, le=1.0)
+    matched_label: Optional[str] = Field(None, description="The candidate label that best matched")
     inference_time_ms: Optional[float] = None
     error: Optional[str] = None
 
@@ -101,7 +100,7 @@ class EvaluateResponse(BaseModel):
     """Response model for /evaluate endpoint."""
 
     model_name: str
-    model_version: str
+    model_type: str
     results: List[EvaluateResult]
     total_phrases: int
     successful_phrases: int
@@ -117,6 +116,8 @@ class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     model_name: str
+    model_type: str
+    candidate_labels_count: Optional[int] = None
     gpu_available: bool
     gpu_name: Optional[str] = None
     gpu_memory_used_mb: Optional[float] = None
@@ -139,7 +140,7 @@ logger = logging_manager.get_logger(__name__)
 app = FastAPI(
     title="Ash-Vigil",
     description="Mental Health Risk Detection Service for the Ash Ecosystem",
-    version="5.0.1",
+    version="5.0.2",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -211,15 +212,14 @@ async def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
     inference_time = (time.perf_counter() - start) * 1000
 
     logger.info(
-        f"[{request_id}] Risk: {result['label']} ({result['score']:.3f}) in {inference_time:.1f}ms"
+        f"[{request_id}] Risk: {result['risk_label']} ({result['risk_score']:.3f}) in {inference_time:.1f}ms"
     )
 
     return AnalyzeResponse(
         request_id=request_id,
-        risk_score=result["score"],
-        risk_label=result["label"],
-        human_label=result.get("human_label", result["label"]),
-        raw_label=result.get("raw_label", "unknown"),
+        risk_score=result["risk_score"],
+        risk_label=result["risk_label"],
+        matched_label=result.get("matched_label", "unknown"),
         confidence=result["confidence"],
         model_version=model_manager.model_name,
         inference_time_ms=round(inference_time, 2),
@@ -258,10 +258,10 @@ async def evaluate_phrases(request: EvaluateRequest) -> EvaluateResponse:
             results.append(
                 EvaluateResult(
                     id=phrase.id,
-                    risk_score=result["score"],
-                    risk_label=result["label"],
-                    human_label=result.get("human_label", result["label"]),
+                    risk_score=result["risk_score"],
+                    risk_label=result["risk_label"],
                     confidence=result["confidence"],
+                    matched_label=result.get("matched_label"),
                     inference_time_ms=round(phrase_time, 2) if request.include_timing else None,
                     error=None,
                 )
@@ -277,8 +277,8 @@ async def evaluate_phrases(request: EvaluateRequest) -> EvaluateResponse:
                     id=phrase.id,
                     risk_score=0.0,
                     risk_label="error",
-                    human_label="error",
                     confidence=0.0,
+                    matched_label=None,
                     inference_time_ms=round(phrase_time, 2) if request.include_timing else None,
                     error=str(e),
                 )
@@ -295,7 +295,7 @@ async def evaluate_phrases(request: EvaluateRequest) -> EvaluateResponse:
 
     return EvaluateResponse(
         model_name=model_manager.model_name,
-        model_version="1.0.0",  # TODO: Get actual model version from HuggingFace
+        model_type=model_manager.model_type,
         results=results,
         total_phrases=len(request.phrases),
         successful_phrases=successful,
@@ -318,6 +318,7 @@ async def health_check() -> HealthResponse:
     gpu_memory = None
     gpu_available = False
     gpu_name = None
+    candidate_labels_count = None
 
     if model_manager:
         gpu_available = model_manager.gpu_available
@@ -326,15 +327,22 @@ async def health_check() -> HealthResponse:
         if gpu_available and torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
 
+        if model_manager.model_type == "zero-shot":
+            candidate_labels_count = len(model_manager.candidate_labels)
+
+    model_config = config.get("model", {})
+
     return HealthResponse(
         status="healthy" if model_manager and model_manager.is_loaded else "degraded",
         model_loaded=model_manager.is_loaded if model_manager else False,
-        model_name=config.get("model", {}).get("name", "unknown"),
+        model_name=model_config.get("name", "unknown"),
+        model_type=model_config.get("type", "unknown"),
+        candidate_labels_count=candidate_labels_count,
         gpu_available=gpu_available,
         gpu_name=gpu_name,
         gpu_memory_used_mb=gpu_memory,
         uptime_seconds=round(time.time() - start_time, 2),
-        version="5.0.1",
+        version="5.0.2",
     )
 
 
@@ -377,15 +385,48 @@ ash_vigil_gpu_memory_mb {gpu_memory_mb}
     return metrics_text
 
 
+@app.get("/labels")
+async def get_labels():
+    """
+    Get the candidate labels used for zero-shot classification.
+
+    Returns the configured labels grouped by risk category.
+    """
+    if not model_manager:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    if model_manager.model_type != "zero-shot":
+        return {
+            "model_type": model_manager.model_type,
+            "message": "This endpoint is only available for zero-shot models",
+        }
+
+    zero_shot_config = config.get("zero_shot", {})
+    labels_config = zero_shot_config.get("candidate_labels", {})
+
+    return {
+        "model_type": "zero-shot",
+        "model_name": model_manager.model_name,
+        "hypothesis_template": zero_shot_config.get("hypothesis_template", "This text is from a {}"),
+        "candidate_labels": labels_config,
+        "total_labels": len(model_manager.candidate_labels),
+    }
+
+
 @app.get("/")
 async def root():
     """Root endpoint with service info."""
+    model_info = {}
+    if model_manager:
+        model_info = model_manager.get_model_info()
+
     return {
         "service": "Ash-Vigil",
         "description": "Mental Health Risk Detection Service",
-        "version": "5.0.1",
+        "version": "5.0.2",
         "ecosystem": "Ash Crisis Detection",
         "community": "The Alphabet Cartel",
+        "model": model_info,
         "links": {
             "discord": "https://discord.gg/alphabetcartel",
             "website": "https://alphabetcartel.org",
@@ -394,6 +435,7 @@ async def root():
         "endpoints": {
             "analyze": "POST /analyze - Single text analysis",
             "evaluate": "POST /evaluate - Bulk phrase evaluation",
+            "labels": "GET /labels - View zero-shot candidate labels",
             "health": "GET /health - Health check",
             "metrics": "GET /metrics - Prometheus metrics",
             "docs": "GET /docs - OpenAPI documentation",
