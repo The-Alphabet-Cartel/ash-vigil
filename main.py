@@ -25,7 +25,7 @@ Usage:
     python main.py
 
 Or via Docker:
-    docker-compose up -d
+    docker compose up -d
 """
 
 import uvicorn

@@ -61,7 +61,7 @@ Inside the container, secrets are available at `/run/secrets/<secret_name>`.
 To rotate a secret:
 
 1. Update the secret file with the new value
-2. Restart the container: `docker-compose restart ash-vigil`
+2. Restart the container: `docker compose restart ash-vigil`
 
 ## Troubleshooting
 

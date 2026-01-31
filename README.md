@@ -65,7 +65,7 @@ mkdir -p secrets
 echo "your-hf-token" > secrets/huggingface_token
 
 # Start the service
-docker-compose up -d
+docker compose up -d
 
 # Check health
 curl http://localhost:30882/health
