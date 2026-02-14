@@ -143,8 +143,8 @@
 		"weight_safe": "${VIGIL_SCORING_WEIGHT_SAFE}",
 		"defaults": {
 			"weight_high_risk": 1.0,
-			"weight_moderate_risk": 0.7,
-			"weight_safe": 1.0
+			"weight_moderate_risk": 3.0,
+			"weight_safe": 0.2
 		},
 		"validation": {
 			"weight_high_risk": {
