@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.0-2-1.3-1
-LAST MODIFIED: 2026-01-26
-PHASE: Phase 2 - Zero-Shot Classification Support
+FILE VERSION: v5.1-6-6.3-1
+LAST MODIFIED: 2026-02-14
+PHASE: Phase 6.3 - Risk Score Formula Rebalancing
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -272,11 +272,17 @@ class ModelManager:
         self, risk_category: str, top_score: float, full_result: Dict
     ) -> float:
         """
-        Calculate overall risk score from zero-shot results.
+        Calculate overall risk score from zero-shot results using ratio-based formula.
 
-        Considers:
-        - The top label's category and score
-        - Combined scores from all labels in risky categories
+        Uses a two-signal approach: risk signal vs safe signal. Low_risk is grouped
+        with safe (someone "venting frustration" is not a crisis). The final score
+        is the difference, naturally producing scores near zero for safe content
+        and only elevating when genuine high/moderate risk signals dominate.
+
+        Formula (Option B - Ratio-Based):
+            risk_signal  = high_risk_max * 1.0 + moderate_risk_max * 0.5
+            safe_signal  = safe_max * 1.0 + low_risk_max * 0.4
+            risk_score   = max(0.0, risk_signal - safe_signal)
 
         Args:
             risk_category: Risk category of top label
@@ -286,7 +292,7 @@ class ModelManager:
         Returns:
             Normalized risk score between 0 and 1
         """
-        # Build score aggregation by risk category
+        # Build score aggregation by risk category (max score per category)
         category_scores: Dict[str, float] = {
             "high_risk": 0.0,
             "moderate_risk": 0.0,
@@ -299,17 +305,20 @@ class ModelManager:
             if cat in category_scores:
                 category_scores[cat] = max(category_scores[cat], score)
 
-        # Calculate weighted risk score
-        # High risk labels contribute most, safe labels reduce score
-        risk_score = (
+        # Ratio-based formula: group signals into risk vs safe camps
+        risk_signal = (
             category_scores["high_risk"] * 1.0
-            + category_scores["moderate_risk"] * 0.6
-            + category_scores["low_risk"] * 0.3
-            - category_scores["safe"] * 0.3
+            + category_scores["moderate_risk"] * 0.5
+        )
+        safe_signal = (
+            category_scores["safe"] * 1.0
+            + category_scores["low_risk"] * 0.4
         )
 
+        risk_score = max(0.0, risk_signal - safe_signal)
+
         # Clamp to [0, 1]
-        return max(0.0, min(1.0, risk_score))
+        return min(1.0, risk_score)
 
     def _score_to_risk_label(self, risk_score: float) -> str:
         """

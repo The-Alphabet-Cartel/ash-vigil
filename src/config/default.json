@@ -1,8 +1,8 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.0-2-1.3-1",
-		"last_modified": "2026-01-26",
+		"file_version": "v5.1-6-6.3-1",
+		"last_modified": "2026-02-14",
 		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
 	},
@@ -73,22 +73,23 @@
 			"_description": "Labels the model will classify text against",
 			"high_risk": [
 				"person expressing suicidal thoughts or self-harm intentions",
-				"person in immediate emotional crisis needing help"
+				"person in immediate emotional crisis needing urgent help"
 			],
 			"moderate_risk": [
-				"person experiencing rejection from family due to identity",
-				"person facing discrimination or social exclusion",
-				"person feeling isolated from their community",
-				"person struggling with identity acceptance"
+				"person experiencing rejection from family due to LGBTQIA+ identity",
+				"person facing discrimination or social exclusion due to who they are",
+				"person struggling with identity acceptance and feeling hopeless"
 			],
 			"low_risk": [
-				"person venting frustration but not in crisis",
-				"person expressing mild sadness or disappointment"
+				"person venting everyday frustration but not in emotional crisis",
+				"person expressing mild sadness or temporary disappointment"
 			],
 			"safe": [
-				"casual conversation about video games or gaming",
-				"person discussing fictional media or quotes",
-				"everyday conversation with no emotional distress"
+				"casual conversation about video games, gaming, or competitive play",
+				"person discussing fictional media, movies, TV shows, or book quotes",
+				"everyday friendly conversation with no emotional distress",
+				"person using slang, humor, sarcasm, or ironic exaggeration",
+				"person sharing opinions about politics, news, or current events"
 			]
 		},
 		"multi_label": false,
@@ -118,8 +119,8 @@
 
 	"thresholds": {
 		"_description": "Score thresholds for risk categorization",
-		"high_risk_min": 0.6,
-		"moderate_risk_min": 0.4,
+		"high_risk_min": 0.65,
+		"moderate_risk_min": 0.45,
 		"low_risk_min": 0.25
 	},
 
