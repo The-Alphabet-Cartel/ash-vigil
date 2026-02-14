@@ -22,6 +22,7 @@ Repository: https://github.com/the-alphabet-cartel/ash-vigil
 """
 
 import asyncio
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -199,6 +200,9 @@ class ModelManager:
             pipeline_type = "text-classification"
             self._logger.info("📋 Creating text-classification pipeline")
 
+        # Suppress HuggingFace/safetensors tqdm progress bars during loading
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
         # Create pipeline
         self._pipeline = pipeline(
             pipeline_type,
@@ -207,6 +211,9 @@ class ModelManager:
             token=token,
             model_kwargs={"cache_dir": self._cache_dir},
         )
+
+        # Re-enable progress bars (for any future downloads)
+        os.environ.pop("HF_HUB_DISABLE_PROGRESS_BARS", None)
 
     async def predict(self, text: str) -> Dict[str, Any]:
         """
