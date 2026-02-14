@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.1-6-6.3-5
+FILE VERSION: v5.1-6-6.3-7
 LAST MODIFIED: 2026-02-14
-PHASE: Phase 6.3 - Remove low_risk output tier
+PHASE: Phase 6.3 - Remove low_risk remnants
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -121,8 +121,7 @@ class ModelManager:
         self._logger.info(
             f"📊 Scoring weights: risk[high={scoring.get('weight_high_risk', 1.0)}, "
             f"moderate={scoring.get('weight_moderate_risk', 0.7)}] "
-            f"safe[safe={scoring.get('weight_safe', 1.0)}, "
-            f"low={scoring.get('weight_low_risk', 0.4)}]"
+            f"safe[safe={scoring.get('weight_safe', 1.0)}]"
         )
 
     @property
@@ -296,16 +295,15 @@ class ModelManager:
         is the difference, naturally producing scores near zero for safe content
         and only elevating when genuine high/moderate risk signals dominate.
 
-        Formula (Option B - Ratio-Based, Configurable):
+        Formula (Ratio-Based, Configurable, Three-Tier):
             risk_signal  = high_risk_max * W_high + moderate_risk_max * W_moderate
-            safe_signal  = safe_max * W_safe + low_risk_max * W_low
+            safe_signal  = safe_max * W_safe
             risk_score   = max(0.0, risk_signal - safe_signal)
 
         Weights are loaded from config (scoring section) with env var overrides:
             VIGIL_SCORING_WEIGHT_HIGH_RISK (default: 1.0)
             VIGIL_SCORING_WEIGHT_MODERATE_RISK (default: 0.7)
             VIGIL_SCORING_WEIGHT_SAFE (default: 1.0)
-            VIGIL_SCORING_WEIGHT_LOW_RISK (default: 0.4)
 
         Args:
             risk_category: Risk category of top label
@@ -321,13 +319,11 @@ class ModelManager:
         w_high = float(scoring.get("weight_high_risk", 1.0))
         w_moderate = float(scoring.get("weight_moderate_risk", 0.7))
         w_safe = float(scoring.get("weight_safe", 1.0))
-        w_low = float(scoring.get("weight_low_risk", 0.4))
 
         # Build score aggregation by risk category (max score per category)
         category_scores: Dict[str, float] = {
             "high_risk": 0.0,
             "moderate_risk": 0.0,
-            "low_risk": 0.0,
             "safe": 0.0,
         }
 
@@ -336,15 +332,12 @@ class ModelManager:
             if cat in category_scores:
                 category_scores[cat] = max(category_scores[cat], score)
 
-        # Ratio-based formula: group signals into risk vs safe camps
+        # Ratio-based formula: risk signal vs safe signal
         risk_signal = (
             category_scores["high_risk"] * w_high
             + category_scores["moderate_risk"] * w_moderate
         )
-        safe_signal = (
-            category_scores["safe"] * w_safe
-            + category_scores["low_risk"] * w_low
-        )
+        safe_signal = category_scores["safe"] * w_safe
 
         risk_score = max(0.0, risk_signal - safe_signal)
 

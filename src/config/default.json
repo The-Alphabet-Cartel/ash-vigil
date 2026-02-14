@@ -1,7 +1,7 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.1-6-6.3-6",
+		"file_version": "v5.1-6-6.3-7",
 		"last_modified": "2026-02-14",
 		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
@@ -141,32 +141,25 @@
 		"weight_high_risk": "${VIGIL_SCORING_WEIGHT_HIGH_RISK}",
 		"weight_moderate_risk": "${VIGIL_SCORING_WEIGHT_MODERATE_RISK}",
 		"weight_safe": "${VIGIL_SCORING_WEIGHT_SAFE}",
-		"weight_low_risk": "${VIGIL_SCORING_WEIGHT_LOW_RISK}",
 		"defaults": {
 			"weight_high_risk": 1.0,
 			"weight_moderate_risk": 0.7,
-			"weight_safe": 1.0,
-			"weight_low_risk": 0.4
+			"weight_safe": 1.0
 		},
 		"validation": {
 			"weight_high_risk": {
 				"type": "float",
-				"range": [0.0, 2.0],
+				"range": [0.01, 5.0],
 				"required": false
 			},
 			"weight_moderate_risk": {
 				"type": "float",
-				"range": [0.0, 2.0],
+				"range": [0.01, 5.0],
 				"required": false
 			},
 			"weight_safe": {
 				"type": "float",
-				"range": [0.0, 2.0],
-				"required": false
-			},
-			"weight_low_risk": {
-				"type": "float",
-				"range": [0.0, 2.0],
+				"range": [0.01, 5.0],
 				"required": false
 			}
 		}
