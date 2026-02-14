@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.1-6-6.3-3
+FILE VERSION: v5.1-6-6.3-4
 LAST MODIFIED: 2026-02-14
-PHASE: Phase 6.3 - Configurable Risk Score Formula
+PHASE: Phase 6.3 - Label Reduction (drop low_risk)
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================

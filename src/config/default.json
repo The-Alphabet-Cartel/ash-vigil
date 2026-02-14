@@ -1,7 +1,7 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.1-6-6.3-3",
+		"file_version": "v5.1-6-6.3-4",
 		"last_modified": "2026-02-14",
 		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
@@ -79,10 +79,6 @@
 				"person experiencing rejection from family due to LGBTQIA+ identity",
 				"person facing discrimination or social exclusion due to who they are",
 				"person struggling with identity acceptance and feeling hopeless"
-			],
-			"low_risk": [
-				"person venting everyday frustration but not in emotional crisis",
-				"person expressing mild sadness or temporary disappointment"
 			],
 			"safe": [
 				"casual conversation about video games, gaming, or competitive play",
