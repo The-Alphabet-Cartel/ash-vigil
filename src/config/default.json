@@ -1,7 +1,7 @@
 {
 	"_metadata": {
 		"title": "Ash-Vigil Default Configuration",
-		"file_version": "v5.1-6-6.3-4",
+		"file_version": "v5.1-6-6.3-5",
 		"last_modified": "2026-02-14",
 		"clean_architecture": "v5.2.3",
 		"description": "Default configuration for Ash-Vigil Mental Health Risk Detection Service"
@@ -114,14 +114,12 @@
 	},
 
 	"thresholds": {
-		"_description": "Score thresholds for risk categorization",
+		"_description": "Score thresholds for risk categorization (three-tier: high_risk, moderate_risk, safe)",
 		"high_risk_min": "${VIGIL_THRESHOLD_HIGH_RISK}",
 		"moderate_risk_min": "${VIGIL_THRESHOLD_MODERATE_RISK}",
-		"low_risk_min": "${VIGIL_THRESHOLD_LOW_RISK}",
 		"defaults": {
 			"high_risk_min": 0.65,
-			"moderate_risk_min": 0.45,
-			"low_risk_min": 0.25
+			"moderate_risk_min": 0.45
 		},
 		"validation": {
 			"high_risk_min": {
@@ -130,11 +128,6 @@
 				"required": false
 			},
 			"moderate_risk_min": {
-				"type": "float",
-				"range": [0.01, 1.0],
-				"required": false
-			},
-			"low_risk_min": {
 				"type": "float",
 				"range": [0.01, 1.0],
 				"required": false

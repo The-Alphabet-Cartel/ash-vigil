@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.1-6-6.3-4
+FILE VERSION: v5.1-6-6.3-5
 LAST MODIFIED: 2026-02-14
-PHASE: Phase 6.3 - Label Reduction (drop low_risk)
+PHASE: Phase 6.3 - Remove low_risk output tier
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -355,22 +355,23 @@ class ModelManager:
         """
         Convert risk score to risk label using thresholds.
 
+        With low_risk labels removed from the model, the output is now
+        three-tier: high_risk, moderate_risk, or safe. Scores below
+        moderate_risk_min are considered safe.
+
         Args:
             risk_score: Calculated risk score (0-1)
 
         Returns:
             Risk label string
         """
-        high_threshold = self._thresholds.get("high_risk_min", 0.6)
-        moderate_threshold = self._thresholds.get("moderate_risk_min", 0.4)
-        low_threshold = self._thresholds.get("low_risk_min", 0.25)
+        high_threshold = self._thresholds.get("high_risk_min", 0.65)
+        moderate_threshold = self._thresholds.get("moderate_risk_min", 0.45)
 
         if risk_score >= high_threshold:
             return "high_risk"
         elif risk_score >= moderate_threshold:
             return "moderate_risk"
-        elif risk_score >= low_threshold:
-            return "low_risk"
         else:
             return "safe"
 
