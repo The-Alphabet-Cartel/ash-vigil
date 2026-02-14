@@ -13,7 +13,7 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.1-6-6.3-2
+FILE VERSION: v5.1-6-6.3-3
 LAST MODIFIED: 2026-02-14
 PHASE: Phase 6.3 - Configurable Risk Score Formula
 CLEAN ARCHITECTURE: Compliant
@@ -116,13 +116,12 @@ class ModelManager:
             self._logger.debug(f"   {risk_cat}: {count} labels")
 
         # Log scoring formula weights
-        risk_weights = self._scoring_config.get("risk_weights", {})
-        safe_weights = self._scoring_config.get("safe_weights", {})
+        scoring = self._scoring_config
         self._logger.info(
-            f"📊 Scoring weights: risk[high={risk_weights.get('high_risk', 1.0)}, "
-            f"moderate={risk_weights.get('moderate_risk', 0.7)}] "
-            f"safe[safe={safe_weights.get('safe', 1.0)}, "
-            f"low={safe_weights.get('low_risk', 0.4)}]"
+            f"📊 Scoring weights: risk[high={scoring.get('weight_high_risk', 1.0)}, "
+            f"moderate={scoring.get('weight_moderate_risk', 0.7)}] "
+            f"safe[safe={scoring.get('weight_safe', 1.0)}, "
+            f"low={scoring.get('weight_low_risk', 0.4)}]"
         )
 
     @property
@@ -310,13 +309,12 @@ class ModelManager:
             Normalized risk score between 0 and 1
         """
         # Load configurable weights with safe defaults
-        risk_weights = self._scoring_config.get("risk_weights", {})
-        safe_weights = self._scoring_config.get("safe_weights", {})
+        scoring = self._scoring_config
 
-        w_high = float(risk_weights.get("high_risk", 1.0))
-        w_moderate = float(risk_weights.get("moderate_risk", 0.7))
-        w_safe = float(safe_weights.get("safe", 1.0))
-        w_low = float(safe_weights.get("low_risk", 0.4))
+        w_high = float(scoring.get("weight_high_risk", 1.0))
+        w_moderate = float(scoring.get("weight_moderate_risk", 0.7))
+        w_safe = float(scoring.get("weight_safe", 1.0))
+        w_low = float(scoring.get("weight_low_risk", 0.4))
 
         # Build score aggregation by risk category (max score per category)
         category_scores: Dict[str, float] = {
