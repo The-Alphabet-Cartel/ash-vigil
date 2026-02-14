@@ -13,9 +13,9 @@ MISSION - NEVER TO BE VIOLATED:
 ============================================================================
 Model Manager - Manages ML model loading, inference, and lifecycle
 ----------------------------------------------------------------------------
-FILE VERSION: v5.1-6-6.3-1
+FILE VERSION: v5.1-6-6.3-2
 LAST MODIFIED: 2026-02-14
-PHASE: Phase 6.3 - Risk Score Formula Rebalancing
+PHASE: Phase 6.3 - Configurable Risk Score Formula
 CLEAN ARCHITECTURE: Compliant
 Repository: https://github.com/the-alphabet-cartel/ash-vigil
 ============================================================================
@@ -59,6 +59,7 @@ class ModelManager:
         self._model_config = config.get("model", {})
         self._zero_shot_config = config.get("zero_shot", {})
         self._thresholds = config.get("thresholds", {})
+        self._scoring_config = config.get("scoring", {})
 
         # Get logger using factory function
         logging_manager = create_logging_config_manager(config)
@@ -113,6 +114,16 @@ class ModelManager:
         for risk_cat in ["high_risk", "moderate_risk", "low_risk", "safe"]:
             count = sum(1 for l, r in self._label_to_risk.items() if r == risk_cat)
             self._logger.debug(f"   {risk_cat}: {count} labels")
+
+        # Log scoring formula weights
+        risk_weights = self._scoring_config.get("risk_weights", {})
+        safe_weights = self._scoring_config.get("safe_weights", {})
+        self._logger.info(
+            f"📊 Scoring weights: risk[high={risk_weights.get('high_risk', 1.0)}, "
+            f"moderate={risk_weights.get('moderate_risk', 0.7)}] "
+            f"safe[safe={safe_weights.get('safe', 1.0)}, "
+            f"low={safe_weights.get('low_risk', 0.4)}]"
+        )
 
     @property
     def is_loaded(self) -> bool:
@@ -279,10 +290,16 @@ class ModelManager:
         is the difference, naturally producing scores near zero for safe content
         and only elevating when genuine high/moderate risk signals dominate.
 
-        Formula (Option B - Ratio-Based):
-            risk_signal  = high_risk_max * 1.0 + moderate_risk_max * 0.5
-            safe_signal  = safe_max * 1.0 + low_risk_max * 0.4
+        Formula (Option B - Ratio-Based, Configurable):
+            risk_signal  = high_risk_max * W_high + moderate_risk_max * W_moderate
+            safe_signal  = safe_max * W_safe + low_risk_max * W_low
             risk_score   = max(0.0, risk_signal - safe_signal)
+
+        Weights are loaded from config (scoring section) with env var overrides:
+            VIGIL_SCORING_WEIGHT_HIGH_RISK (default: 1.0)
+            VIGIL_SCORING_WEIGHT_MODERATE_RISK (default: 0.7)
+            VIGIL_SCORING_WEIGHT_SAFE (default: 1.0)
+            VIGIL_SCORING_WEIGHT_LOW_RISK (default: 0.4)
 
         Args:
             risk_category: Risk category of top label
@@ -292,6 +309,15 @@ class ModelManager:
         Returns:
             Normalized risk score between 0 and 1
         """
+        # Load configurable weights with safe defaults
+        risk_weights = self._scoring_config.get("risk_weights", {})
+        safe_weights = self._scoring_config.get("safe_weights", {})
+
+        w_high = float(risk_weights.get("high_risk", 1.0))
+        w_moderate = float(risk_weights.get("moderate_risk", 0.7))
+        w_safe = float(safe_weights.get("safe", 1.0))
+        w_low = float(safe_weights.get("low_risk", 0.4))
+
         # Build score aggregation by risk category (max score per category)
         category_scores: Dict[str, float] = {
             "high_risk": 0.0,
@@ -307,12 +333,12 @@ class ModelManager:
 
         # Ratio-based formula: group signals into risk vs safe camps
         risk_signal = (
-            category_scores["high_risk"] * 1.0
-            + category_scores["moderate_risk"] * 0.5
+            category_scores["high_risk"] * w_high
+            + category_scores["moderate_risk"] * w_moderate
         )
         safe_signal = (
-            category_scores["safe"] * 1.0
-            + category_scores["low_risk"] * 0.4
+            category_scores["safe"] * w_safe
+            + category_scores["low_risk"] * w_low
         )
 
         risk_score = max(0.0, risk_signal - safe_signal)
